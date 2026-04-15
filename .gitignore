@@ -1,0 +1,11 @@
+.env
+.env.local
+.env.*.local
+data/
+*.db
+*.sqlite
+*.sqlite3
+.claude/
+.omc/
+output/
+fox-gateway
