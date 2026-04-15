@@ -24,7 +24,7 @@ func Load() (Config, error) {
 	}
 	raw := reg.Config()
 	if err := raw.Validate(); err != nil {
-		return Config{}, fmt.Errorf("fox-gateway is not configured yet. Run `./fox-gateway setup` first: %w", err)
+		return Config{}, fmt.Errorf("fox-gateway is not configured yet. Run `fox-gateway setup` first: %w", err)
 	}
 
 	cfg := Config{

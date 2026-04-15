@@ -37,11 +37,19 @@ func New() *Runner {
 }
 
 func (r *Runner) Run(ctx context.Context, req Request) (Result, error) {
+	return r.execute(ctx, req)
+}
+
+func (r *Runner) Probe(ctx context.Context, req Request) (Result, error) {
+	if strings.TrimSpace(req.Prompt) == "" {
+		req.Prompt = "Reply with OK only."
+	}
+	return r.execute(ctx, req)
+}
+
+func (r *Runner) execute(ctx context.Context, req Request) (Result, error) {
 	startedAt := time.Now().UTC()
-	args := []string{"-p", req.Prompt, "--output-format", "text", "--no-session-persistence"}
-	cmd := exec.CommandContext(ctx, req.ClaudePath, args...)
-	cmd.Dir = req.WorkspaceRoot
-	cmd.Env = sanitizedEnv(os.Environ())
+	cmd, args := buildCommand(ctx, req)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -80,6 +88,14 @@ func (r *Runner) Run(ctx context.Context, req Request) (Result, error) {
 		return result, err
 	}
 	return result, nil
+}
+
+func buildCommand(ctx context.Context, req Request) (*exec.Cmd, []string) {
+	args := []string{"-p", req.Prompt, "--output-format", "text", "--no-session-persistence"}
+	cmd := exec.CommandContext(ctx, req.ClaudePath, args...)
+	cmd.Dir = req.WorkspaceRoot
+	cmd.Env = sanitizedEnv(os.Environ())
+	return cmd, args
 }
 
 func KillProcess(pid int) error {

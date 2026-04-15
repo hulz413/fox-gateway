@@ -79,7 +79,7 @@ func Run(in io.Reader, out io.Writer, configPath string) error {
 	_, _ = fmt.Fprintf(out, "Configuration written to:\n  %s\n", reg.Path())
 	_, _ = fmt.Fprintln(out, "")
 	_, _ = fmt.Fprintln(out, "Next step:")
-	_, _ = fmt.Fprintln(out, "  ./fox-gateway")
+	_, _ = fmt.Fprintln(out, "  fox-gateway start")
 	if message, ok := reg.BootstrapMessage(); ok {
 		_, _ = fmt.Fprintln(out, "")
 		_, _ = fmt.Fprintln(out, "First approver pairing")

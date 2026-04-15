@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 
 	"fox-gateway/internal/domain"
 	"fox-gateway/internal/larkutil"
@@ -25,10 +26,21 @@ type Responder interface {
 type Client struct {
 	wsClient *larkws.Client
 	logger   *log.Logger
+
+	readyMu     sync.RWMutex
+	ready       bool
+	readyDetail string
+	readyCh     chan struct{}
+	readyOnce   sync.Once
 }
 
 func New(appID, appSecret string, responder Responder, logger *log.Logger) *Client {
-	sdkLogger := sdkLogAdapter{logger: logger}
+	client := &Client{
+		logger:   logger,
+		readyCh:  make(chan struct{}),
+		readyDetail: "waiting for websocket connection",
+	}
+	sdkLogger := sdkLogAdapter{logger: logger, onConnected: client.markReady}
 
 	dispatcher := larkdispatcher.NewEventDispatcher("", "")
 	dispatcher.InitConfig(
@@ -109,7 +121,7 @@ func New(appID, appSecret string, responder Responder, logger *log.Logger) *Clie
 		return resp, nil
 	})
 
-	client := larkws.NewClient(
+	client.wsClient = larkws.NewClient(
 		appID,
 		appSecret,
 		larkws.WithEventHandler(dispatcher),
@@ -118,7 +130,7 @@ func New(appID, appSecret string, responder Responder, logger *log.Logger) *Clie
 		larkws.WithLogger(sdkLogger),
 	)
 
-	return &Client{wsClient: client, logger: logger}
+	return client
 }
 
 func (c *Client) Start(ctx context.Context) error {
@@ -131,8 +143,55 @@ func (c *Client) Start(ctx context.Context) error {
 	return c.wsClient.Start(ctx)
 }
 
+func (c *Client) WaitUntilReady(ctx context.Context) error {
+	if c == nil {
+		return fmt.Errorf("websocket client is not initialized")
+	}
+	c.readyMu.RLock()
+	if c.ready {
+		c.readyMu.RUnlock()
+		return nil
+	}
+	readyCh := c.readyCh
+	c.readyMu.RUnlock()
+
+	select {
+	case <-readyCh:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (c *Client) ReadyState() (bool, string) {
+	if c == nil {
+		return false, "websocket client is not initialized"
+	}
+	c.readyMu.RLock()
+	defer c.readyMu.RUnlock()
+	return c.ready, c.readyDetail
+}
+
+func (c *Client) markReady(detail string) {
+	if c == nil {
+		return
+	}
+	c.readyMu.Lock()
+	if c.ready {
+		c.readyMu.Unlock()
+		return
+	}
+	c.ready = true
+	c.readyDetail = detail
+	c.readyMu.Unlock()
+	c.readyOnce.Do(func() {
+		close(c.readyCh)
+	})
+}
+
 type sdkLogAdapter struct {
-	logger *log.Logger
+	logger      *log.Logger
+	onConnected func(string)
 }
 
 func (l sdkLogAdapter) Debug(_ context.Context, args ...interface{}) {
@@ -152,12 +211,17 @@ func (l sdkLogAdapter) Error(_ context.Context, args ...interface{}) {
 }
 
 func (l sdkLogAdapter) logFiltered(args ...interface{}) {
-	if l.logger == nil {
-		return
-	}
 	message := strings.TrimSpace(fmt.Sprint(args...))
 	lower := strings.ToLower(message)
+	if strings.Contains(lower, "connected to wss://") || strings.Contains(lower, "connected to ws://") {
+		if l.onConnected != nil {
+			l.onConnected(message)
+		}
+	}
 	if strings.Contains(lower, "ping success") || strings.Contains(lower, "receive pong") {
+		return
+	}
+	if l.logger == nil {
 		return
 	}
 	l.logger.Println(args...)

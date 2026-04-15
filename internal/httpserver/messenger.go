@@ -56,6 +56,11 @@ func (c *LarkClient) SendText(ctx context.Context, chatID, text string) error {
 	return c.sendMessage(ctx, chatID, "text", map[string]string{"text": text})
 }
 
+func (c *LarkClient) ValidateCredentials(ctx context.Context) error {
+	_, err := c.tenantAccessToken(ctx)
+	return err
+}
+
 func (c *LarkClient) SendOneSecondAck(ctx context.Context, messageID string) error {
 	if strings.TrimSpace(messageID) == "" {
 		return nil

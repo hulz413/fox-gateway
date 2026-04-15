@@ -9,7 +9,7 @@ At the moment, the only coding agent backend supported is **Claude Code**.
 ### 1. Run setup
 
 ```bash
-./fox-gateway setup
+fox-gateway setup
 ```
 
 This writes local runtime config to `~/.fox-gateway/fox-gateway.json` by default.
@@ -21,7 +21,7 @@ During setup, you will be asked for:
 ### 2. Start the gateway
 
 ```bash
-./fox-gateway
+fox-gateway start
 ```
 
 ### 3. Pair the first approver
