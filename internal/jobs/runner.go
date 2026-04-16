@@ -24,6 +24,7 @@ type WorkerRequest struct {
 }
 
 type Callback func(context.Context, domain.Job) error
+type ConfirmationHandler func(context.Context, domain.Job, claudecode.Result) (domain.Job, error)
 
 type Runner struct {
 	store          *store.Store
@@ -32,10 +33,11 @@ type Runner struct {
 	chatLock       *KeyedLock
 	readonlyTokens chan struct{}
 	onUpdate       Callback
+	onConfirmation ConfirmationHandler
 	wg             sync.WaitGroup
 }
 
-func NewRunner(st *store.Store, worker *claudecode.Runner, maxReadOnly int, onUpdate Callback) *Runner {
+func NewRunner(st *store.Store, worker *claudecode.Runner, maxReadOnly int, onUpdate Callback, onConfirmation ConfirmationHandler) *Runner {
 	return &Runner{
 		store:          st,
 		worker:         worker,
@@ -43,6 +45,7 @@ func NewRunner(st *store.Store, worker *claudecode.Runner, maxReadOnly int, onUp
 		chatLock:       NewKeyedLock(),
 		readonlyTokens: make(chan struct{}, maxReadOnly),
 		onUpdate:       onUpdate,
+		onConfirmation: onConfirmation,
 	}
 }
 
@@ -126,6 +129,13 @@ func (r *Runner) execute(ctx context.Context, req WorkerRequest) error {
 		job.Status = domain.JobStatusFailed
 		job.ErrorText = runErr.Error()
 		job.ResultSummary = summarizeResult(result)
+	} else if result.RequesterConfirmation != nil && r.onConfirmation != nil {
+		job, runErr = r.onConfirmation(ctx, job, result)
+		if runErr != nil {
+			job.Status = domain.JobStatusFailed
+			job.ErrorText = runErr.Error()
+			job.ResultSummary = summarizeResult(result)
+		}
 	} else {
 		job.Status = domain.JobStatusSucceeded
 		job.ResultSummary = summarizeResult(result)
@@ -145,7 +155,7 @@ func (r *Runner) runClaude(ctx context.Context, req WorkerRequest) (WorkerReques
 		JobID:           req.JobID,
 		ClaudePath:      req.ClaudePath,
 		WorkspaceRoot:   req.WorkspaceRoot,
-		Prompt:          req.Prompt,
+		Prompt:          claudecode.AppendRequesterConfirmationContract(req.Prompt),
 		Mutating:        req.Mutating,
 		Async:           true,
 		OutputFormat:    "json",

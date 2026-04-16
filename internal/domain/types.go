@@ -13,14 +13,15 @@ const (
 type JobStatus string
 
 const (
-	JobStatusQueued          JobStatus = "queued"
-	JobStatusWaitingApproval JobStatus = "waiting_approval"
-	JobStatusApproved        JobStatus = "approved"
-	JobStatusRunning         JobStatus = "running"
-	JobStatusSucceeded       JobStatus = "succeeded"
-	JobStatusFailed          JobStatus = "failed"
-	JobStatusRejected        JobStatus = "rejected"
-	JobStatusInterrupted     JobStatus = "interrupted"
+	JobStatusQueued              JobStatus = "queued"
+	JobStatusWaitingApproval     JobStatus = "waiting_approval"
+	JobStatusWaitingConfirmation JobStatus = "waiting_confirmation"
+	JobStatusApproved            JobStatus = "approved"
+	JobStatusRunning             JobStatus = "running"
+	JobStatusSucceeded           JobStatus = "succeeded"
+	JobStatusFailed              JobStatus = "failed"
+	JobStatusRejected            JobStatus = "rejected"
+	JobStatusInterrupted         JobStatus = "interrupted"
 )
 
 type ApprovalStatus string

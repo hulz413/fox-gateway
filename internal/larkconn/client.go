@@ -36,8 +36,8 @@ type Client struct {
 
 func New(appID, appSecret string, responder Responder, logger *log.Logger) *Client {
 	client := &Client{
-		logger:   logger,
-		readyCh:  make(chan struct{}),
+		logger:      logger,
+		readyCh:     make(chan struct{}),
 		readyDetail: "waiting for websocket connection",
 	}
 	sdkLogger := sdkLogAdapter{logger: logger, onConnected: client.markReady}
@@ -101,14 +101,15 @@ func New(appID, appSecret string, responder Responder, logger *log.Logger) *Clie
 		}
 		request := larkutil.ActionRequest{}
 		if event.Event.Operator != nil {
-			request.ApproverOpenID = event.Event.Operator.OpenID
+			request.ActorOpenID = event.Event.Operator.OpenID
 		}
 		if event.Event.Action != nil {
 			request.JobID = stringify(event.Event.Action.Value["job_id"])
-			request.Decision = stringify(event.Event.Action.Value["decision"])
+			request.RequestKind = stringify(event.Event.Action.Value["request_kind"])
+			request.ChoiceID = stringify(event.Event.Action.Value["choice_id"])
 		}
 		if logger != nil {
-			logger.Printf("received Feishu card action: approver=%s job=%s decision=%s", request.ApproverOpenID, request.JobID, request.Decision)
+			logger.Printf("received Feishu card action: actor=%s job=%s kind=%s choice=%s", request.ActorOpenID, request.JobID, request.RequestKind, request.ChoiceID)
 		}
 		if err := responder.HandleLarkAction(ctx, request); err != nil {
 			if logger != nil {

@@ -21,9 +21,9 @@ import (
 type Messenger interface {
 	SendText(context.Context, string, string) error
 	SendApprovalCard(context.Context, string, string, string, string) error
+	SendDecisionCard(context.Context, string, approval.DecisionCard) error
 	SendOneSecondAck(context.Context, string) error
 }
-
 type Service struct {
 	cfg       config.Config
 	store     *store.Store
@@ -35,7 +35,7 @@ type Service struct {
 
 func NewService(cfg config.Config, st *store.Store, reg *registry.Registry, messenger Messenger) *Service {
 	svc := &Service{cfg: cfg, store: st, registry: reg, messenger: messenger, chatLock: jobs.NewKeyedLock()}
-	svc.jobRunner = jobs.NewRunner(st, claudecode.New(), cfg.MaxReadOnlyWorkers, svc.onJobUpdate)
+	svc.jobRunner = jobs.NewRunner(st, claudecode.New(), cfg.MaxReadOnlyWorkers, svc.onJobUpdate, svc.onConfirmationRequest)
 	return svc
 }
 
@@ -121,13 +121,20 @@ func (s *Service) HandleLarkAction(ctx context.Context, action larkutil.ActionRe
 	if approvalRecord.Status != domain.ApprovalStatusPending {
 		return nil
 	}
-	if s.registry == nil || !s.registry.IsApprover(action.ApproverOpenID) {
-		return fmt.Errorf("approver is not registered")
-	}
 
 	payload, err := approval.ParsePayload(approvalRecord.PayloadJSON)
 	if err != nil {
 		return err
+	}
+	requestKind := action.RequestKind
+	if requestKind == "" {
+		requestKind = approval.KindApproval
+	}
+	if payload.Kind == "" {
+		payload.Kind = approval.KindApproval
+	}
+	if requestKind != payload.Kind {
+		return fmt.Errorf("unexpected decision card kind")
 	}
 	conversationContext, err := s.currentConversation(ctx, job.ChatID)
 	if err != nil {
@@ -136,7 +143,7 @@ func (s *Service) HandleLarkAction(ctx context.Context, action larkutil.ActionRe
 	conversation := conversationContext.conversation
 	if payload.ConversationGeneration != conversation.SessionGeneration || strings.TrimSpace(payload.ConversationSessionID) != conversationContext.sessionID || payload.ConversationMessageID != job.MessageID {
 		approvalRecord.Status = domain.ApprovalStatusInvalidated
-		approvalRecord.ApproverOpenID = action.ApproverOpenID
+		approvalRecord.ApproverOpenID = action.ActorOpenID
 		approvalRecord.DecisionReason = "conversation context changed before approval"
 		approvalRecord.UpdatedAt = time.Now().UTC()
 		job.Status = domain.JobStatusRejected
@@ -148,12 +155,15 @@ func (s *Service) HandleLarkAction(ctx context.Context, action larkutil.ActionRe
 		if err := s.store.UpdateJob(ctx, job); err != nil {
 			return err
 		}
+		if payload.Kind == approval.KindRequesterConfirmation {
+			return s.messenger.SendText(ctx, job.ChatID, "会话上下文已变化，请重新发送请求后再确认。")
+		}
 		return s.messenger.SendText(ctx, job.ChatID, "会话上下文已变化，请重新发送请求后再审批。")
 	}
 	payload.BaseRepoState = currentRepoState(s.cfg.WorkspaceRoot)
 	if !approval.ValidateHash(payload, approvalRecord.Hash) {
 		approvalRecord.Status = domain.ApprovalStatusInvalidated
-		approvalRecord.ApproverOpenID = action.ApproverOpenID
+		approvalRecord.ApproverOpenID = action.ActorOpenID
 		approvalRecord.DecisionReason = "approval payload drifted before execution"
 		approvalRecord.UpdatedAt = time.Now().UTC()
 		job.Status = domain.JobStatusRejected
@@ -168,36 +178,75 @@ func (s *Service) HandleLarkAction(ctx context.Context, action larkutil.ActionRe
 		return s.messenger.SendText(ctx, job.ChatID, "Pairing or approval context changed. Please send the request again.")
 	}
 
-	approvalRecord.ApproverOpenID = action.ApproverOpenID
+	approvalRecord.ApproverOpenID = action.ActorOpenID
 	approvalRecord.UpdatedAt = time.Now().UTC()
-	if strings.EqualFold(action.Decision, "approve") {
+	switch payload.Kind {
+	case approval.KindApproval:
+		if s.registry == nil || !s.registry.IsApprover(action.ActorOpenID) {
+			return fmt.Errorf("approver is not registered")
+		}
+		if strings.EqualFold(action.ChoiceID, "approve") {
+			approvalRecord.Status = domain.ApprovalStatusApproved
+			job.Status = domain.JobStatusApproved
+		} else {
+			approvalRecord.Status = domain.ApprovalStatusRejected
+			job.Status = domain.JobStatusRejected
+		}
+		if err := s.store.SaveApproval(ctx, approvalRecord); err != nil {
+			return err
+		}
+		job.UpdatedAt = time.Now().UTC()
+		if err := s.store.UpdateJob(ctx, job); err != nil {
+			return err
+		}
+		if approvalRecord.Status == domain.ApprovalStatusApproved {
+			s.jobRunner.Enqueue(jobs.WorkerRequest{
+				JobID:             job.ID,
+				ChatID:            job.ChatID,
+				Prompt:            job.RequestText,
+				WorkspaceRoot:     s.cfg.WorkspaceRoot,
+				ClaudePath:        s.cfg.ClaudePath,
+				Mutating:          true,
+				ResumeSessionID:   conversationContext.sessionID,
+				SessionGeneration: conversationContext.conversation.SessionGeneration,
+			})
+		}
+		return nil
+	case approval.KindRequesterConfirmation:
+		if !strings.EqualFold(strings.TrimSpace(payload.RequestedByOpenID), strings.TrimSpace(action.ActorOpenID)) {
+			return fmt.Errorf("only the requester can confirm this action")
+		}
+		choice, ok := approval.FindChoice(payload.CardChoices, action.ChoiceID)
+		if !ok {
+			return fmt.Errorf("invalid confirmation choice")
+		}
 		approvalRecord.Status = domain.ApprovalStatusApproved
-		job.Status = domain.JobStatusApproved
-	} else {
-		approvalRecord.Status = domain.ApprovalStatusRejected
-		job.Status = domain.JobStatusRejected
-	}
-	if err := s.store.SaveApproval(ctx, approvalRecord); err != nil {
-		return err
-	}
-	job.UpdatedAt = time.Now().UTC()
-	if err := s.store.UpdateJob(ctx, job); err != nil {
-		return err
-	}
-	if approvalRecord.Status == domain.ApprovalStatusApproved {
+		approvalRecord.DecisionReason = choice.ID
+		if err := s.store.SaveApproval(ctx, approvalRecord); err != nil {
+			return err
+		}
+		job.Status = domain.JobStatusQueued
+		job.ResultSummary = ""
+		job.ErrorText = ""
+		job.UpdatedAt = time.Now().UTC()
+		if err := s.store.UpdateJob(ctx, job); err != nil {
+			return err
+		}
+		resumePrompt := buildRequesterConfirmationResumePrompt(job.RequestText, payload, choice)
 		s.jobRunner.Enqueue(jobs.WorkerRequest{
 			JobID:             job.ID,
 			ChatID:            job.ChatID,
-			Prompt:            job.RequestText,
+			Prompt:            resumePrompt,
 			WorkspaceRoot:     s.cfg.WorkspaceRoot,
 			ClaudePath:        s.cfg.ClaudePath,
-			Mutating:          true,
+			Mutating:          false,
 			ResumeSessionID:   conversationContext.sessionID,
 			SessionGeneration: conversationContext.conversation.SessionGeneration,
 		})
 		return nil
+	default:
+		return fmt.Errorf("unsupported approval kind %q", payload.Kind)
 	}
-	return nil
 }
 
 func (s *Service) createAndRunJob(ctx context.Context, event domain.LarkMessageEvent, classification Classification, conversationContext conversationContext) error {
@@ -216,6 +265,7 @@ func (s *Service) createAndRunJob(ctx context.Context, event domain.LarkMessageE
 	}
 	if classification.NeedsApproval {
 		payload := approval.Payload{
+			Kind:                   approval.KindApproval,
 			WorkspaceID:            s.cfg.WorkspaceRoot,
 			BaseRepoState:          currentRepoState(s.cfg.WorkspaceRoot),
 			ConversationSessionID:  conversationContext.sessionID,
@@ -293,6 +343,83 @@ func (s *Service) onJobUpdate(ctx context.Context, job domain.Job) error {
 		return s.messenger.SendText(ctx, job.ChatID, "执行失败："+job.ErrorText)
 	}
 	return nil
+}
+
+func (s *Service) onConfirmationRequest(ctx context.Context, job domain.Job, result claudecode.Result) (domain.Job, error) {
+	confirmation := result.RequesterConfirmation
+	if confirmation == nil {
+		return job, fmt.Errorf("missing requester confirmation payload")
+	}
+	conversationContext, err := s.currentConversation(ctx, job.ChatID)
+	if err != nil {
+		return job, err
+	}
+	payload := approval.Payload{
+		Kind:                   approval.KindRequesterConfirmation,
+		WorkspaceID:            s.cfg.WorkspaceRoot,
+		BaseRepoState:          currentRepoState(s.cfg.WorkspaceRoot),
+		ConversationSessionID:  conversationContext.sessionID,
+		ConversationGeneration: conversationContext.conversation.SessionGeneration,
+		ConversationMessageID:  job.MessageID,
+		RequestedByOpenID:      job.RequesterOpenID,
+		CardTitle:              confirmation.Title,
+		CardBody:               confirmation.Body,
+		CardChoices:            toApprovalChoices(confirmation.Choices),
+		IntentCategory:         string(job.Kind),
+		AllowedActions:         []string{"read_only_analysis"},
+		AllowedPaths:           []string{s.cfg.WorkspaceRoot},
+		BlockedPathClasses:     []string{"secrets", "env", "deploy"},
+		RuntimeLimitSec:        900,
+		Async:                  true,
+		Nonce:                  job.ID,
+	}
+	hash, err := approval.HashPayload(payload)
+	if err != nil {
+		return job, err
+	}
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return job, err
+	}
+	job.Status = domain.JobStatusWaitingConfirmation
+	job.ApprovalHash = hash
+	job.ResultSummary = ""
+	job.ErrorText = ""
+	job.UpdatedAt = time.Now().UTC()
+	if err := s.store.SaveApproval(ctx, domain.Approval{
+		JobID:       job.ID,
+		PayloadJSON: string(payloadJSON),
+		Hash:        hash,
+		Status:      domain.ApprovalStatusPending,
+		RequestedBy: job.RequesterOpenID,
+		CreatedAt:   job.UpdatedAt,
+		UpdatedAt:   job.UpdatedAt,
+	}); err != nil {
+		return job, err
+	}
+	if err := s.messenger.SendDecisionCard(ctx, job.ChatID, approval.DecisionCard{
+		JobID:       job.ID,
+		RequestKind: approval.KindRequesterConfirmation,
+		Title:       confirmation.Title,
+		Body:        confirmation.Body,
+		Theme:       "blue",
+		Choices:     payload.CardChoices,
+	}); err != nil {
+		return job, err
+	}
+	return job, nil
+}
+
+func toApprovalChoices(choices []claudecode.ConfirmationChoice) []approval.Choice {
+	result := make([]approval.Choice, 0, len(choices))
+	for _, choice := range choices {
+		result = append(result, approval.Choice{ID: choice.ID, Label: choice.Label, Style: choice.Style})
+	}
+	return result
+}
+
+func buildRequesterConfirmationResumePrompt(originalPrompt string, payload approval.Payload, choice approval.Choice) string {
+	return fmt.Sprintf("%s\n\nRequester confirmation: %s\nSelected option: %s (%s)\nContinue the same task using this decision.", originalPrompt, payload.CardTitle, choice.Label, choice.ID)
 }
 
 func (s *Service) handleRegistration(ctx context.Context, event domain.LarkMessageEvent) (bool, error) {

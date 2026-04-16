@@ -7,6 +7,7 @@ import (
 
 func TestHashPayloadDeterministicAcrossOrder(t *testing.T) {
 	left := Payload{
+		Kind:                   KindApproval,
 		WorkspaceID:            "/tmp/workspace",
 		BaseRepoState:          "nogit",
 		ConversationSessionID:  "session-1",
@@ -21,6 +22,7 @@ func TestHashPayloadDeterministicAcrossOrder(t *testing.T) {
 		Nonce:                  "job_123",
 	}
 	right := Payload{
+		Kind:                   KindApproval,
 		WorkspaceID:            "/tmp/workspace",
 		BaseRepoState:          "nogit",
 		ConversationSessionID:  "session-1",
@@ -51,6 +53,7 @@ func TestHashPayloadDeterministicAcrossOrder(t *testing.T) {
 
 func TestValidateHashDetectsDrift(t *testing.T) {
 	payload := Payload{
+		Kind:                   KindApproval,
 		WorkspaceID:            "/tmp/workspace",
 		BaseRepoState:          "abc123",
 		ConversationSessionID:  "session-1",
@@ -87,6 +90,7 @@ func TestIsApproverAllowed(t *testing.T) {
 
 func TestParsePayloadRoundTrip(t *testing.T) {
 	payload := Payload{
+		Kind:                   KindApproval,
 		WorkspaceID:            "/tmp/workspace",
 		BaseRepoState:          "abc123",
 		ConversationSessionID:  "session-1",

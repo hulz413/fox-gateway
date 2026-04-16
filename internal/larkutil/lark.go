@@ -7,9 +7,10 @@ import (
 )
 
 type ActionRequest struct {
-	JobID          string
-	Decision       string
-	ApproverOpenID string
+	JobID       string
+	RequestKind string
+	ChoiceID    string
+	ActorOpenID string
 }
 
 func ExtractText(raw string) string {

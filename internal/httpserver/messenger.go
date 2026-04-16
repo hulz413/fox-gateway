@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"fox-gateway/internal/approval"
+
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 )
@@ -82,46 +84,72 @@ func (c *LarkClient) SendOneSecondAck(ctx context.Context, messageID string) err
 	return nil
 }
 
-func (c *LarkClient) SendApprovalCard(ctx context.Context, chatID, jobID, hash, summary string) error {
+func (c *LarkClient) SendDecisionCard(ctx context.Context, chatID string, card approval.DecisionCard) error {
 	if c.logger != nil {
-		c.logger.Printf("sending Feishu approval card: chat=%s job=%s", chatID, jobID)
+		c.logger.Printf("sending Feishu decision card: chat=%s job=%s kind=%s", chatID, card.JobID, card.RequestKind)
 	}
-	card := map[string]any{
+	content, err := buildDecisionCardPayload(card)
+	if err != nil {
+		return err
+	}
+	return c.sendMessage(ctx, chatID, "interactive", content)
+}
+
+func buildDecisionCardPayload(card approval.DecisionCard) (map[string]any, error) {
+	theme := strings.TrimSpace(card.Theme)
+	if theme == "" {
+		theme = "orange"
+	}
+	actions := make([]any, 0, len(card.Choices))
+	for _, choice := range card.Choices {
+		buttonType := "default"
+		if strings.TrimSpace(choice.Style) != "" {
+			buttonType = choice.Style
+		}
+		actions = append(actions, map[string]any{
+			"tag":   "button",
+			"type":  buttonType,
+			"text":  map[string]any{"tag": "plain_text", "content": choice.Label},
+			"value": map[string]string{"job_id": card.JobID, "request_kind": card.RequestKind, "choice_id": choice.ID},
+		})
+	}
+	content := map[string]any{
 		"config": map[string]any{
 			"wide_screen_mode": true,
 		},
 		"header": map[string]any{
-			"template": "orange",
+			"template": theme,
 			"title": map[string]any{
 				"tag":     "plain_text",
-				"content": "Approval required",
+				"content": truncateForCard(card.Title, 120),
 			},
 		},
 		"elements": []any{
 			map[string]any{
 				"tag":     "markdown",
-				"content": fmt.Sprintf("**Job**: `%s`\n**Hash**: `%s`\n**Request**: %s", jobID, truncateForCard(hash, 24), truncateForCard(summary, 500)),
+				"content": truncateForCard(card.Body, 800),
 			},
 			map[string]any{
-				"tag": "action",
-				"actions": []any{
-					map[string]any{
-						"tag":   "button",
-						"type":  "primary",
-						"text":  map[string]any{"tag": "plain_text", "content": "Approve"},
-						"value": map[string]string{"job_id": jobID, "decision": "approve"},
-					},
-					map[string]any{
-						"tag":   "button",
-						"type":  "danger",
-						"text":  map[string]any{"tag": "plain_text", "content": "Reject"},
-						"value": map[string]string{"job_id": jobID, "decision": "reject"},
-					},
-				},
+				"tag":     "action",
+				"actions": actions,
 			},
 		},
 	}
-	return c.sendMessage(ctx, chatID, "interactive", card)
+	return content, nil
+}
+
+func (c *LarkClient) SendApprovalCard(ctx context.Context, chatID, jobID, hash, summary string) error {
+	return c.SendDecisionCard(ctx, chatID, approval.DecisionCard{
+		JobID:       jobID,
+		RequestKind: approval.KindApproval,
+		Title:       "Approval required",
+		Body:        fmt.Sprintf("**Job**: `%s`\n**Hash**: `%s`\n**Request**: %s", jobID, truncateForCard(hash, 24), truncateForCard(summary, 500)),
+		Theme:       "orange",
+		Choices: []approval.Choice{
+			{ID: "approve", Label: "Approve", Style: "primary"},
+			{ID: "reject", Label: "Reject", Style: "danger"},
+		},
+	})
 }
 
 func (c *LarkClient) sendMessage(ctx context.Context, chatID, msgType string, content any) error {

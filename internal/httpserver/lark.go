@@ -118,9 +118,10 @@ func (h *LarkHandler) Actions(w http.ResponseWriter, r *http.Request) {
 		openID = payload.OpenID
 	}
 	if err := h.responder.HandleLarkAction(r.Context(), larkutil.ActionRequest{
-		JobID:          payload.Action.Value["job_id"],
-		Decision:       payload.Action.Value["decision"],
-		ApproverOpenID: openID,
+		JobID:       payload.Action.Value["job_id"],
+		RequestKind: payload.Action.Value["request_kind"],
+		ChoiceID:    payload.Action.Value["choice_id"],
+		ActorOpenID: openID,
 	}); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

@@ -64,6 +64,26 @@ func TestParseJSONResult(t *testing.T) {
 	}
 }
 
+func TestParseJSONResultRequesterConfirmation(t *testing.T) {
+	result := Result{Stdout: `{"result":"{\"type\":\"requester_confirmation\",\"title\":\"Need confirmation\",\"body\":\"Continue?\",\"choices\":[{\"id\":\"continue\",\"label\":\"Continue\",\"style\":\"primary\"},{\"id\":\"cancel\",\"label\":\"Cancel\",\"style\":\"danger\"}]}","session_id":"session-1"}`}
+	if err := parseJSONResult(&result); err != nil {
+		t.Fatalf("parseJSONResult error = %v", err)
+	}
+	if result.RequesterConfirmation == nil {
+		t.Fatal("expected requester confirmation")
+	}
+	if result.RequesterConfirmation.Title != "Need confirmation" {
+		t.Fatalf("Title = %q, want Need confirmation", result.RequesterConfirmation.Title)
+	}
+}
+
+func TestAppendRequesterConfirmationContract(t *testing.T) {
+	got := AppendRequesterConfirmationContract("analyze this repo")
+	if !strings.Contains(got, "analyze this repo") || !strings.Contains(got, "requester_confirmation") || !strings.Contains(got, "choices") {
+		t.Fatalf("AppendRequesterConfirmationContract() = %q", got)
+	}
+}
+
 func TestIsMissingSessionError(t *testing.T) {
 	err := errors.New("No conversation found with session ID: deadbeef")
 	if !IsMissingSessionError(err, Result{}) {

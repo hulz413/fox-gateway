@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"fox-gateway/internal/approval"
 	"fox-gateway/internal/config"
 	"fox-gateway/internal/domain"
 	"fox-gateway/internal/larkutil"
@@ -22,6 +23,7 @@ type fakeMessenger struct {
 		hash    string
 		summary string
 	}
+	decisionCards []approval.DecisionCard
 }
 
 func (f *fakeMessenger) SendText(_ context.Context, _ string, text string) error {
@@ -36,6 +38,11 @@ func (f *fakeMessenger) SendApprovalCard(_ context.Context, chatID, jobID, hash,
 		hash    string
 		summary string
 	}{chatID: chatID, jobID: jobID, hash: hash, summary: summary})
+	return nil
+}
+
+func (f *fakeMessenger) SendDecisionCard(_ context.Context, _ string, card approval.DecisionCard) error {
+	f.decisionCards = append(f.decisionCards, card)
 	return nil
 }
 
@@ -344,9 +351,10 @@ fi
 		t.Fatalf("FindLatestJobByChat error = %v", err)
 	}
 	if err := svc.HandleLarkAction(ctx, larkutil.ActionRequest{
-		JobID:          job.ID,
-		Decision:       "approve",
-		ApproverOpenID: "ou_approver",
+		JobID:       job.ID,
+		RequestKind: approval.KindApproval,
+		ChoiceID:    "approve",
+		ActorOpenID: "ou_approver",
 	}); err != nil {
 		t.Fatalf("HandleLarkAction error = %v", err)
 	}
@@ -430,9 +438,10 @@ func TestHandleLarkActionRejectsStaleConversationContext(t *testing.T) {
 		t.Fatalf("FindLatestJobByChat error = %v", err)
 	}
 	if err := svc.HandleLarkAction(ctx, larkutil.ActionRequest{
-		JobID:          job.ID,
-		Decision:       "approve",
-		ApproverOpenID: "ou_approver",
+		JobID:       job.ID,
+		RequestKind: approval.KindApproval,
+		ChoiceID:    "approve",
+		ActorOpenID: "ou_approver",
 	}); err != nil {
 		t.Fatalf("HandleLarkAction error = %v", err)
 	}

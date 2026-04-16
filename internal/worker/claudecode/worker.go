@@ -24,22 +24,46 @@ type Request struct {
 	ResumeSessionID           string
 }
 
-type Result struct {
-	PID        *int
-	Stdout     string
-	Stderr     string
-	ExitCode   int
-	StartedAt  time.Time
-	FinishedAt time.Time
-	Command    string
-	Text       string
-	SessionID  string
+type ConfirmationChoice struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Style string `json:"style,omitempty"`
 }
+
+type RequesterConfirmation struct {
+	Type    string               `json:"type"`
+	Title   string               `json:"title"`
+	Body    string               `json:"body"`
+	Choices []ConfirmationChoice `json:"choices"`
+}
+
+type Result struct {
+	PID                   *int
+	Stdout                string
+	Stderr                string
+	ExitCode              int
+	StartedAt             time.Time
+	FinishedAt            time.Time
+	Command               string
+	Text                  string
+	SessionID             string
+	RequesterConfirmation *RequesterConfirmation
+}
+
+const requesterConfirmationContract = "If you need the requester to confirm before continuing, respond with ONLY a JSON object (no markdown fences, no extra text) using this schema: {\"type\":\"requester_confirmation\",\"title\":\"short title\",\"body\":\"short explanation\",\"choices\":[{\"id\":\"continue\",\"label\":\"Continue\",\"style\":\"primary\"},{\"id\":\"cancel\",\"label\":\"Cancel\",\"style\":\"danger\"}]}. Constraints: title 1-120 chars, body 1-800 chars, choices 2-3 items, choice ids use only lowercase letters, digits, underscores, or dashes, labels are 1-30 chars, and style may be primary/default/danger. If you do not need confirmation, reply normally."
 
 type Runner struct{}
 
 func New() *Runner {
 	return &Runner{}
+}
+
+func AppendRequesterConfirmationContract(prompt string) string {
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" {
+		return requesterConfirmationContract
+	}
+	return prompt + "\n\n" + requesterConfirmationContract
 }
 
 func (r *Runner) Run(ctx context.Context, req Request) (Result, error) {
@@ -156,8 +180,79 @@ func parseJSONResult(result *Result) error {
 	if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
 		return fmt.Errorf("parse claude json output: %w", err)
 	}
+	confirmation, err := parseRequesterConfirmationText(payload.Result)
+	if err != nil {
+		return err
+	}
 	result.Text = payload.Result
 	result.SessionID = payload.SessionID
+	result.RequesterConfirmation = confirmation
+	return nil
+}
+
+func parseRequesterConfirmationText(value string) (*RequesterConfirmation, error) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" || !strings.HasPrefix(trimmed, "{") {
+		return nil, nil
+	}
+	var confirmation RequesterConfirmation
+	if err := json.Unmarshal([]byte(trimmed), &confirmation); err != nil {
+		return nil, nil
+	}
+	if confirmation.Type != "requester_confirmation" {
+		return nil, nil
+	}
+	if err := validateRequesterConfirmation(&confirmation); err != nil {
+		return nil, err
+	}
+	return &confirmation, nil
+}
+
+func validateRequesterConfirmation(value *RequesterConfirmation) error {
+	if value == nil {
+		return nil
+	}
+	if value.Type != "requester_confirmation" {
+		return fmt.Errorf("unsupported requester confirmation type %q", value.Type)
+	}
+	title := strings.TrimSpace(value.Title)
+	body := strings.TrimSpace(value.Body)
+	if title == "" || body == "" {
+		return fmt.Errorf("requester confirmation requires non-empty title and body")
+	}
+	if len(title) > 120 {
+		return fmt.Errorf("requester confirmation title is too long")
+	}
+	if len(body) > 800 {
+		return fmt.Errorf("requester confirmation body is too long")
+	}
+	if len(value.Choices) < 2 || len(value.Choices) > 3 {
+		return fmt.Errorf("requester confirmation requires 2-3 choices")
+	}
+	seen := map[string]struct{}{}
+	for _, choice := range value.Choices {
+		id := strings.TrimSpace(choice.ID)
+		label := strings.TrimSpace(choice.Label)
+		if id == "" || label == "" {
+			return fmt.Errorf("requester confirmation choice requires id and label")
+		}
+		if len(id) > 32 || len(label) > 30 {
+			return fmt.Errorf("requester confirmation choice is too long")
+		}
+		for _, r := range id {
+			if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' || r == '-') {
+				return fmt.Errorf("requester confirmation choice id %q is invalid", id)
+			}
+		}
+		if _, ok := seen[id]; ok {
+			return fmt.Errorf("requester confirmation choice id %q is duplicated", id)
+		}
+		seen[id] = struct{}{}
+		style := strings.TrimSpace(choice.Style)
+		if style != "" && style != "primary" && style != "default" && style != "danger" {
+			return fmt.Errorf("requester confirmation choice style %q is invalid", style)
+		}
+	}
 	return nil
 }
 

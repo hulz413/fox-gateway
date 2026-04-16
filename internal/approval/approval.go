@@ -8,12 +8,37 @@ import (
 	"strings"
 )
 
+const (
+	KindApproval              = "approval"
+	KindRequesterConfirmation = "requester_confirmation"
+)
+
+type Choice struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Style string `json:"style,omitempty"`
+}
+
+type DecisionCard struct {
+	JobID       string
+	RequestKind string
+	Title       string
+	Body        string
+	Theme       string
+	Choices     []Choice
+}
+
 type Payload struct {
+	Kind                   string   `json:"kind"`
 	WorkspaceID            string   `json:"workspace_id"`
 	BaseRepoState          string   `json:"base_repo_state"`
 	ConversationSessionID  string   `json:"conversation_session_id"`
 	ConversationGeneration int64    `json:"conversation_generation"`
 	ConversationMessageID  string   `json:"conversation_message_id"`
+	RequestedByOpenID      string   `json:"requested_by_open_id,omitempty"`
+	CardTitle              string   `json:"card_title,omitempty"`
+	CardBody               string   `json:"card_body,omitempty"`
+	CardChoices            []Choice `json:"card_choices,omitempty"`
 	IntentCategory         string   `json:"intent_category"`
 	AllowedActions         []string `json:"allowed_actions"`
 	AllowedPaths           []string `json:"allowed_paths"`
@@ -60,6 +85,15 @@ func IsApproverAllowed(allowlist []string, openID string) bool {
 		}
 	}
 	return false
+}
+
+func FindChoice(choices []Choice, id string) (Choice, bool) {
+	for _, choice := range choices {
+		if strings.EqualFold(strings.TrimSpace(choice.ID), strings.TrimSpace(id)) {
+			return choice, true
+		}
+	}
+	return Choice{}, false
 }
 
 func sortedCopy(values []string) []string {
