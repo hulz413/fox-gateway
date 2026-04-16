@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -78,6 +79,60 @@ func DownloadURL(repo, binaryName, tag, goos, goarch string) (string, error) {
 
 func CurrentDownloadURL(tag string) (string, error) {
 	return DownloadURL(DefaultRepo, DefaultBinaryName, tag, runtime.GOOS, runtime.GOARCH)
+}
+
+func ResolveTargetVersion(ctx context.Context, client *http.Client, repo, requestedTag string) (string, error) {
+	if strings.TrimSpace(requestedTag) != "" {
+		return NormalizeVersionTag(requestedTag)
+	}
+	return ResolveLatestVersion(ctx, client, repo)
+}
+
+func ResolveLatestVersion(ctx context.Context, client *http.Client, repo string) (string, error) {
+	if strings.TrimSpace(repo) == "" {
+		repo = DefaultRepo
+	}
+	if client == nil {
+		client = &http.Client{Timeout: 15 * time.Second}
+	}
+	checkClient := *client
+	checkClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("https://github.com/%s/releases/latest", repo), nil)
+	if err != nil {
+		return "", err
+	}
+	response, err := checkClient.Do(request)
+	if err != nil {
+		return "", err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 300 || response.StatusCode >= 400 {
+		return "", fmt.Errorf("resolve latest release version failed: %s", response.Status)
+	}
+	location := strings.TrimSpace(response.Header.Get("Location"))
+	if location == "" {
+		return "", fmt.Errorf("resolve latest release version failed: missing redirect location")
+	}
+	return extractTagFromReleaseLocation(location)
+}
+
+func extractTagFromReleaseLocation(location string) (string, error) {
+	parsed, err := url.Parse(location)
+	if err != nil {
+		return "", err
+	}
+	marker := "/releases/tag/"
+	idx := strings.Index(parsed.Path, marker)
+	if idx < 0 {
+		return "", fmt.Errorf("resolve latest release version failed: unexpected redirect path %q", parsed.Path)
+	}
+	tag := parsed.Path[idx+len(marker):]
+	if tag == "" {
+		return "", fmt.Errorf("resolve latest release version failed: empty tag in redirect path")
+	}
+	return NormalizeVersionTag(tag)
 }
 
 func ResolveExecutablePath() (string, error) {

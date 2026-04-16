@@ -40,7 +40,7 @@ Upgrade to a specific tag:
 fox-gateway upgrade v0.1.1
 ```
 
-The upgrade command replaces the currently installed `fox-gateway` binary in place and uses GitHub Releases as the source of truth.
+The upgrade command prints the current version and target version before replacing the currently installed `fox-gateway` binary in place. If they are already the same, it skips the update entirely. GitHub Releases remain the source of truth.
 If the gateway service is running, stop it first:
 
 ```bash

@@ -52,6 +52,36 @@ func TestDownloadURL(t *testing.T) {
 	}
 }
 
+func TestResolveTargetVersionNormalizesExplicitTag(t *testing.T) {
+	got, err := ResolveTargetVersion(context.Background(), nil, DefaultRepo, "0.3.1")
+	if err != nil {
+		t.Fatalf("ResolveTargetVersion explicit error = %v", err)
+	}
+	if got != "v0.3.1" {
+		t.Fatalf("ResolveTargetVersion explicit = %q, want %q", got, "v0.3.1")
+	}
+}
+
+func TestExtractTagFromReleaseLocationRelativePath(t *testing.T) {
+	got, err := extractTagFromReleaseLocation("/hulz413/fox-gateway/releases/tag/v0.3.1")
+	if err != nil {
+		t.Fatalf("extractTagFromReleaseLocation relative error = %v", err)
+	}
+	if got != "v0.3.1" {
+		t.Fatalf("extractTagFromReleaseLocation relative = %q, want %q", got, "v0.3.1")
+	}
+}
+
+func TestExtractTagFromReleaseLocation(t *testing.T) {
+	got, err := extractTagFromReleaseLocation("https://github.com/hulz413/fox-gateway/releases/tag/v0.3.1")
+	if err != nil {
+		t.Fatalf("extractTagFromReleaseLocation error = %v", err)
+	}
+	if got != "v0.3.1" {
+		t.Fatalf("extractTagFromReleaseLocation = %q, want %q", got, "v0.3.1")
+	}
+}
+
 func TestDownloadAndReplace(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("new-binary"))

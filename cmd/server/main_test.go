@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 )
@@ -64,5 +65,28 @@ func TestUsageTextIncludesStartCommand(t *testing.T) {
 	got := usageText()
 	if !strings.Contains(got, "start    Start fox-gateway in the background") {
 		t.Fatalf("usageText() = %q, missing start command", got)
+	}
+}
+
+func TestRunUpgradeSkipsWhenCurrentMatchesTarget(t *testing.T) {
+	oldVersion := version
+	oldResolveTargetVersion := resolveTargetVersion
+	defer func() {
+		version = oldVersion
+		resolveTargetVersion = oldResolveTargetVersion
+	}()
+	version = "v0.3.1"
+	resolveTargetVersion = func(context.Context, string) (string, error) { return "v0.3.1", nil }
+	t.Setenv("HOME", t.TempDir())
+	var out bytes.Buffer
+	if err := runUpgrade(&out, &out, nil); err != nil {
+		t.Fatalf("runUpgrade error = %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "Current version: v0.3.1") || !strings.Contains(got, "Target version: v0.3.1") {
+		t.Fatalf("upgrade output = %q", got)
+	}
+	if !strings.Contains(got, "No update needed") {
+		t.Fatalf("expected no-op message, got %q", got)
 	}
 }

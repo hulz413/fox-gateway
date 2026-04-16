@@ -42,6 +42,15 @@ var (
 	version = "dev"
 	commit  = "unknown"
 	date    = "unknown"
+
+	resolveTargetVersion = func(ctx context.Context, requestedTag string) (string, error) {
+		return upgrade.ResolveTargetVersion(ctx, nil, upgrade.DefaultRepo, requestedTag)
+	}
+	resolveExecutablePath = upgrade.ResolveExecutablePath
+	currentDownloadURL    = upgrade.CurrentDownloadURL
+	downloadAndReplace    = func(ctx context.Context, url, target string, progress io.Writer) error {
+		return upgrade.DownloadAndReplace(ctx, nil, url, target, progress)
+	}
 )
 
 func main() {
@@ -409,48 +418,54 @@ func runUpgrade(stdout, stderr io.Writer, args []string) error {
 		}
 	}
 
-	tag := ""
+	requestedTag := ""
 	if len(args) == 1 {
-		normalized, err := upgrade.NormalizeVersionTag(args[0])
-		if err != nil {
-			return err
-		}
-		tag = normalized
-		if version != "dev" && version == tag {
-			fmt.Fprintf(stdout, "fox-gateway %s is already installed.\n", tag)
-			return nil
-		}
+		requestedTag = args[0]
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), upgradeTimeout)
+	defer cancel()
+	targetVersion, err := resolveTargetVersion(ctx, requestedTag)
+	if err != nil {
+		return err
+	}
+	currentVersion := installedVersionTag()
+	fmt.Fprintf(stdout, "Current version: %s\n", currentVersion)
+	fmt.Fprintf(stdout, "Target version: %s\n", targetVersion)
+	if currentVersion != "dev" && currentVersion == targetVersion {
+		fmt.Fprintf(stdout, "fox-gateway is already on %s. No update needed.\n", targetVersion)
+		return nil
 	}
 
-	targetPath, err := upgrade.ResolveExecutablePath()
+	targetPath, err := resolveExecutablePath()
 	if err != nil {
 		return fmt.Errorf("resolve fox-gateway executable: %w", err)
 	}
-	url, err := upgrade.CurrentDownloadURL(tag)
+	url, err := currentDownloadURL(targetVersion)
 	if err != nil {
 		return err
 	}
 
-	if tag == "" {
-		fmt.Fprintln(stdout, "Upgrading fox-gateway to the latest release...")
-	} else {
-		fmt.Fprintf(stdout, "Upgrading fox-gateway to %s...\n", tag)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), upgradeTimeout)
-	defer cancel()
+	fmt.Fprintf(stdout, "Upgrading fox-gateway to %s...\n", targetVersion)
 	progress := stderr
 	if progress == nil {
 		progress = stdout
 	}
-	if err := upgrade.DownloadAndReplace(ctx, nil, url, targetPath, progress); err != nil {
+	if err := downloadAndReplace(ctx, url, targetPath, progress); err != nil {
 		return fmt.Errorf("upgrade fox-gateway: %w", err)
 	}
-	if tag == "" {
-		fmt.Fprintf(stdout, "Upgraded fox-gateway at %s\n", targetPath)
-	} else {
-		fmt.Fprintf(stdout, "Upgraded fox-gateway to %s at %s\n", tag, targetPath)
-	}
+	fmt.Fprintf(stdout, "Upgraded fox-gateway to %s at %s\n", targetVersion, targetPath)
 	return nil
+}
+
+func installedVersionTag() string {
+	if version == "dev" {
+		return version
+	}
+	normalized, err := upgrade.NormalizeVersionTag(version)
+	if err != nil {
+		return version
+	}
+	return normalized
 }
 
 func loadConfigWithGuidance() (config.Config, error) {
