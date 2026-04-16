@@ -32,7 +32,7 @@ const (
 	startupTimeout      = 30 * time.Second
 	shutdownTimeout     = 10 * time.Second
 	feishuReadyTimeout  = 20 * time.Second
-	claudeProbeTimeout  = 20 * time.Second
+	claudeCheckTimeout  = 5 * time.Second
 	upgradeTimeout      = 2 * time.Minute
 	pollInterval        = 250 * time.Millisecond
 	endpointProbeTimout = 1 * time.Second
@@ -216,21 +216,20 @@ func runServe(stdout io.Writer) (runErr error) {
 		return fmt.Errorf("mark Feishu ready: %w", err)
 	}
 
-	if err := runtimeFile.MarkClaudeWaiting("running Claude Code preflight"); err != nil {
+	if err := runtimeFile.MarkClaudeWaiting("checking Claude Code CLI availability"); err != nil {
 		return fmt.Errorf("update Claude readiness: %w", err)
 	}
-	claudeCtx, cancelClaude := context.WithTimeout(shutdownCtx, claudeProbeTimeout)
-	probeResult, err := claudecode.New().Probe(claudeCtx, claudecode.Request{
+	claudeCtx, cancelClaude := context.WithTimeout(shutdownCtx, claudeCheckTimeout)
+	checkResult, err := claudecode.New().Check(claudeCtx, claudecode.Request{
 		ClaudePath:    cfg.ClaudePath,
 		WorkspaceRoot: cfg.WorkspaceRoot,
-		Prompt:        "Reply with OK only.",
 	})
 	cancelClaude()
 	if err != nil {
-		fileLogger.Printf("Claude Code preflight failed: stdout=%q stderr=%q err=%v", probeResult.Stdout, probeResult.Stderr, err)
-		return fmt.Errorf("claude code preflight: %w", err)
+		fileLogger.Printf("Claude Code CLI check failed: stdout=%q stderr=%q err=%v", checkResult.Stdout, checkResult.Stderr, err)
+		return fmt.Errorf("claude code cli check: %w", err)
 	}
-	if err := runtimeFile.MarkClaudeReady("Claude Code CLI preflight succeeded"); err != nil {
+	if err := runtimeFile.MarkClaudeReady("Claude Code CLI is available"); err != nil {
 		return fmt.Errorf("mark Claude ready: %w", err)
 	}
 

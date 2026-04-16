@@ -46,6 +46,10 @@ func (r *Runner) Run(ctx context.Context, req Request) (Result, error) {
 	return r.execute(ctx, req)
 }
 
+func (r *Runner) Check(ctx context.Context, req Request) (Result, error) {
+	return r.executeCommand(ctx, req, buildHealthCheckCommand)
+}
+
 func (r *Runner) Probe(ctx context.Context, req Request) (Result, error) {
 	if strings.TrimSpace(req.Prompt) == "" {
 		req.Prompt = "Reply with OK only."
@@ -59,8 +63,12 @@ func (r *Runner) Probe(ctx context.Context, req Request) (Result, error) {
 }
 
 func (r *Runner) execute(ctx context.Context, req Request) (Result, error) {
+	return r.executeCommand(ctx, req, buildCommand)
+}
+
+func (r *Runner) executeCommand(ctx context.Context, req Request, builder func(context.Context, Request) (*exec.Cmd, []string)) (Result, error) {
 	startedAt := time.Now().UTC()
-	cmd, args := buildCommand(ctx, req)
+	cmd, args := builder(ctx, req)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -118,6 +126,14 @@ func buildCommand(ctx context.Context, req Request) (*exec.Cmd, []string) {
 	if req.DisableSessionPersistence && strings.TrimSpace(req.ResumeSessionID) == "" {
 		args = append(args, "--no-session-persistence")
 	}
+	cmd := exec.CommandContext(ctx, req.ClaudePath, args...)
+	cmd.Dir = req.WorkspaceRoot
+	cmd.Env = sanitizedEnv(os.Environ())
+	return cmd, args
+}
+
+func buildHealthCheckCommand(ctx context.Context, req Request) (*exec.Cmd, []string) {
+	args := []string{"--version"}
 	cmd := exec.CommandContext(ctx, req.ClaudePath, args...)
 	cmd.Dir = req.WorkspaceRoot
 	cmd.Env = sanitizedEnv(os.Environ())

@@ -59,3 +59,10 @@ func TestRunUpgradeRejectsMultipleArgs(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestUsageTextIncludesStartCommand(t *testing.T) {
+	got := usageText()
+	if !strings.Contains(got, "start    Start fox-gateway in the background") {
+		t.Fatalf("usageText() = %q, missing start command", got)
+	}
+}

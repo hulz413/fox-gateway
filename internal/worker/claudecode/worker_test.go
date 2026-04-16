@@ -41,6 +41,16 @@ func TestBuildCommandDisablesSessionPersistenceWhenRequested(t *testing.T) {
 	}
 }
 
+func TestBuildHealthCheckCommandUsesVersion(t *testing.T) {
+	_, args := buildHealthCheckCommand(context.Background(), Request{
+		ClaudePath:    "claude",
+		WorkspaceRoot: "/tmp",
+	})
+	if len(args) != 1 || args[0] != "--version" {
+		t.Fatalf("args = %v, want [--version]", args)
+	}
+}
+
 func TestParseJSONResult(t *testing.T) {
 	result := Result{Stdout: `{"result":"hello","session_id":"session-1"}`}
 	if err := parseJSONResult(&result); err != nil {
