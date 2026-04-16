@@ -26,6 +26,28 @@ source ~/.profile
 
 Or open a new shell session.
 
+## Upgrade
+
+Upgrade to the latest release:
+
+```bash
+fox-gateway upgrade
+```
+
+Upgrade to a specific tag:
+
+```bash
+fox-gateway upgrade v0.1.1
+```
+
+The upgrade command replaces the currently installed `fox-gateway` binary in place and uses GitHub Releases as the source of truth.
+If the gateway service is running, stop it first:
+
+```bash
+fox-gateway stop
+fox-gateway upgrade
+```
+
 ## Quick start
 
 ### 1. Run setup

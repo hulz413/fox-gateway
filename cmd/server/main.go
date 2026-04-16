@@ -24,6 +24,7 @@ import (
 	"fox-gateway/internal/registry"
 	setupcmd "fox-gateway/internal/setup"
 	"fox-gateway/internal/store"
+	"fox-gateway/internal/upgrade"
 	"fox-gateway/internal/worker/claudecode"
 )
 
@@ -32,6 +33,7 @@ const (
 	shutdownTimeout     = 10 * time.Second
 	feishuReadyTimeout  = 20 * time.Second
 	claudeProbeTimeout  = 20 * time.Second
+	upgradeTimeout      = 2 * time.Minute
 	pollInterval        = 250 * time.Millisecond
 	endpointProbeTimout = 1 * time.Second
 )
@@ -72,6 +74,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return runStatus(stdout)
 	case "version":
 		return runVersion(stdout)
+	case "upgrade":
+		return runUpgrade(stdout, stderr, args[1:])
 	default:
 		return fmt.Errorf("unknown command %q\n\n%s", command, usageText())
 	}
@@ -85,7 +89,7 @@ func resolveCommand(args []string) string {
 }
 
 func usageText() string {
-	return "Usage:\n  fox-gateway <command>\n\nCommands:\n  setup    Configure fox-gateway locally\n  start    Start fox-gateway in the background\n  stop     Stop the running fox-gateway service\n  restart  Restart the fox-gateway service\n  status   Show current fox-gateway status\n  version  Show fox-gateway build version\n  help     Show this help\n"
+	return "Usage:\n  fox-gateway <command>\n\nCommands:\n  setup    Configure fox-gateway locally\n  start    Start fox-gateway in the background\n  stop     Stop the running fox-gateway service\n  restart  Restart the fox-gateway service\n  status   Show current fox-gateway status\n  version  Show fox-gateway build version\n  upgrade  Upgrade fox-gateway to latest or a specific version\n  help     Show this help\n"
 }
 
 func runServe(stdout io.Writer) (runErr error) {
@@ -389,6 +393,66 @@ func runVersion(stdout io.Writer) error {
 	fmt.Fprintf(stdout, "fox-gateway version %s\n", version)
 	fmt.Fprintf(stdout, "commit: %s\n", commit)
 	fmt.Fprintf(stdout, "built: %s\n", date)
+	return nil
+}
+
+func runUpgrade(stdout, stderr io.Writer, args []string) error {
+	if len(args) > 1 {
+		return fmt.Errorf("upgrade accepts at most one version argument\n\n%s", usageText())
+	}
+	if state, ok, err := currentRuntime(); err != nil {
+		return err
+	} else if ok {
+		condition := runtimeCondition(state)
+		switch condition {
+		case "ready", "starting":
+			return fmt.Errorf("fox-gateway is running; stop it before upgrading with: fox-gateway stop")
+		case "stale", "failed":
+			_ = daemon.Remove(daemon.DefaultPath())
+		}
+	}
+
+	tag := ""
+	if len(args) == 1 {
+		normalized, err := upgrade.NormalizeVersionTag(args[0])
+		if err != nil {
+			return err
+		}
+		tag = normalized
+		if version != "dev" && version == tag {
+			fmt.Fprintf(stdout, "fox-gateway %s is already installed.\n", tag)
+			return nil
+		}
+	}
+
+	targetPath, err := upgrade.ResolveExecutablePath()
+	if err != nil {
+		return fmt.Errorf("resolve fox-gateway executable: %w", err)
+	}
+	url, err := upgrade.CurrentDownloadURL(tag)
+	if err != nil {
+		return err
+	}
+
+	if tag == "" {
+		fmt.Fprintln(stdout, "Upgrading fox-gateway to the latest release...")
+	} else {
+		fmt.Fprintf(stdout, "Upgrading fox-gateway to %s...\n", tag)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), upgradeTimeout)
+	defer cancel()
+	progress := stderr
+	if progress == nil {
+		progress = stdout
+	}
+	if err := upgrade.DownloadAndReplace(ctx, nil, url, targetPath, progress); err != nil {
+		return fmt.Errorf("upgrade fox-gateway: %w", err)
+	}
+	if tag == "" {
+		fmt.Fprintf(stdout, "Upgraded fox-gateway at %s\n", targetPath)
+	} else {
+		fmt.Fprintf(stdout, "Upgraded fox-gateway to %s at %s\n", tag, targetPath)
+	}
 	return nil
 }
 

@@ -105,15 +105,71 @@ build_download_url() {
   fi
 }
 
+fetch_content_length() {
+  url="$1"
+
+  set +e
+  headers=$(curl --silent --show-error --location --head "$url" 2>/dev/null)
+  status=$?
+  set -e
+  if [ "$status" -ne 0 ]; then
+    return 0
+  fi
+
+  printf '%s\n' "$headers" | awk 'BEGIN { IGNORECASE = 1 } /^content-length:/ { size = $2 } END { gsub("\r", "", size); print size }'
+}
+
 download_file() {
   url="$1"
   destination="$2"
 
-  if [ -t 2 ]; then
-    curl --fail --location --progress-bar "$url" -o "$destination"
-  else
+  if ! [ -t 2 ]; then
     curl --fail --show-error --silent --location "$url" -o "$destination"
+    return 0
   fi
+
+  content_length="$(fetch_content_length "$url")"
+  curl --fail --show-error --silent --location "$url" -o "$destination" &
+  curl_pid=$!
+  last_line=""
+
+  while kill -0 "$curl_pid" 2>/dev/null; do
+    downloaded="0"
+    if [ -f "$destination" ]; then
+      downloaded=$(wc -c < "$destination" 2>/dev/null || printf '0')
+      downloaded=$(printf '%s' "$downloaded" | tr -d '[:space:]')
+    fi
+
+    if [ -n "$content_length" ] && [ "$content_length" -gt 0 ] 2>/dev/null; then
+      percent=$(( downloaded * 100 / content_length ))
+      if [ "$percent" -gt 100 ]; then
+        percent=100
+      fi
+      line=$(printf 'Downloading... %3d%%%%' "$percent")
+    else
+      line=$(printf 'Downloading... %s bytes' "$downloaded")
+    fi
+
+    if [ "$line" != "$last_line" ]; then
+      printf '\r%s' "$line" >&2
+      last_line="$line"
+    fi
+    sleep 0.1
+  done
+
+  if wait "$curl_pid"; then
+    if [ -n "$content_length" ] && [ "$content_length" -gt 0 ] 2>/dev/null; then
+      printf '\rDownloading... 100%%\n' >&2
+    else
+      downloaded=$(wc -c < "$destination" 2>/dev/null || printf '0')
+      downloaded=$(printf '%s' "$downloaded" | tr -d '[:space:]')
+      printf '\rDownloading... %s bytes\n' "$downloaded" >&2
+    fi
+    return 0
+  fi
+
+  printf '\n' >&2
+  return 1
 }
 
 main() {
