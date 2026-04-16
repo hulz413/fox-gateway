@@ -36,6 +36,12 @@ const (
 	endpointProbeTimout = 1 * time.Second
 )
 
+var (
+	version = "dev"
+	commit  = "unknown"
+	date    = "unknown"
+)
+
 func main() {
 	if err := run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
@@ -60,8 +66,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 		return runStart(stdout)
 	case "status":
 		return runStatus(stdout)
+	case "version":
+		return runVersion(stdout)
 	default:
-		return fmt.Errorf("unknown command %q\n\nSupported commands:\n  fox-gateway setup\n  fox-gateway start\n  fox-gateway stop\n  fox-gateway restart\n  fox-gateway status", resolveCommand(args))
+		return fmt.Errorf("unknown command %q\n\nSupported commands:\n  fox-gateway setup\n  fox-gateway start\n  fox-gateway stop\n  fox-gateway restart\n  fox-gateway status\n  fox-gateway version", resolveCommand(args))
 	}
 }
 
@@ -366,6 +374,13 @@ func runStatus(stdout io.Writer) error {
 	condition := runtimeCondition(state)
 	fmt.Fprintf(stdout, "Fox Gateway is %s.\n", condition)
 	printRuntimeSummary(stdout, state, condition)
+	return nil
+}
+
+func runVersion(stdout io.Writer) error {
+	fmt.Fprintf(stdout, "fox-gateway version %s\n", version)
+	fmt.Fprintf(stdout, "commit: %s\n", commit)
+	fmt.Fprintf(stdout, "built: %s\n", date)
 	return nil
 }
 

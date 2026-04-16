@@ -8,4 +8,5 @@ data/
 .claude/
 .omc/
 output/
+dist/
 fox-gateway

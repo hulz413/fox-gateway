@@ -1,0 +1,15 @@
+version: 2
+
+project_name: fox-gateway
+
+builds:
+  - id: fox-gateway
+    main: ./cmd/server
+    binary: fox-gateway
+    env:
+      - CGO_ENABLED=1
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }} -X main.commit={{ .Commit }} -X main.date={{ .Date }}
+    mod_timestamp: "{{ .CommitTimestamp }}"

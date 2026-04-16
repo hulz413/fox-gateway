@@ -2,7 +2,29 @@
 
 Fox Gateway connects Feishu (Lark) chat with a local coding agent runtime.
 
-At the moment, the only coding agent backend supported is **Claude Code**.
+At the moment, the only coding agent backend supported is Claude Code.
+
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hulz413/fox-gateway/main/scripts/install.sh | bash
+```
+
+This installs the latest GitHub Release binary to `~/.local/bin/fox-gateway`.
+The installer script itself is fetched from the repository raw URL, while the binary payload is downloaded from GitHub Releases.
+
+Supported platforms:
+- Linux amd64 / x86_64
+- macOS Intel (x86_64)
+- macOS Apple Silicon (arm64)
+
+If `fox-gateway` is not available in your current shell after install, run:
+
+```bash
+source ~/.profile
+```
+
+Or open a new shell session.
 
 ## Quick start
 
@@ -36,5 +58,5 @@ After pairing, send messages to the Feishu bot and Fox Gateway will forward them
 
 - Local config and pairing state live under `~/.fox-gateway/`
 - Runtime logs are written under `~/.fox-gateway/logs/`
-- The gateway currently uses Feishu **websocket connection** delivery mode
-- The worker currently runs **Claude Code** only
+- The gateway currently uses Feishu websocket connection delivery mode
+- The worker currently runs Claude Code only
