@@ -67,7 +67,7 @@ type Approval struct {
 	Hash           string
 	Status         ApprovalStatus
 	RequestedBy    string
-	ApproverOpenID string
+	ActorOpenID    string
 	DecisionReason string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time

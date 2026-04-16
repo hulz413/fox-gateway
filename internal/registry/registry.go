@@ -13,11 +13,11 @@ import (
 const (
 	Version               = 1
 	BootstrapModeChatKey  = "chat_key"
-	ApproverStatusActive  = "active"
+	UserStatusActive      = "active"
 	RegisterCommandPrefix = "fox-gateway register"
 )
 
-type Approver struct {
+type User struct {
 	OpenID        string    `json:"open_id"`
 	RegisteredAt  time.Time `json:"registered_at"`
 	RegisteredVia string    `json:"registered_via"`
@@ -36,7 +36,7 @@ type Bootstrap struct {
 type State struct {
 	Version   int           `json:"version"`
 	Config    RuntimeConfig `json:"config"`
-	Approvers []Approver    `json:"approvers"`
+	Users     []User        `json:"users"`
 	Bootstrap Bootstrap     `json:"bootstrap"`
 }
 
@@ -91,7 +91,7 @@ func Open(path string) (*Registry, error) {
 	if r.state.Version != Version {
 		return nil, fmt.Errorf("unsupported registry version: %d", r.state.Version)
 	}
-	if len(r.state.Approvers) == 0 && (r.state.Bootstrap.Key == "" || r.state.Bootstrap.ConsumedAt != nil) {
+	if len(r.state.Users) == 0 && (r.state.Bootstrap.Key == "" || r.state.Bootstrap.ConsumedAt != nil) {
 		r.state.Bootstrap = newBootstrap()
 		if err := r.saveLocked(); err != nil {
 			return nil, err
@@ -107,17 +107,17 @@ func (r *Registry) Path() string {
 func (r *Registry) BootstrapMessage() (string, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if len(r.state.Approvers) > 0 || r.state.Bootstrap.Key == "" || r.state.Bootstrap.ConsumedAt != nil {
+	if len(r.state.Users) > 0 || r.state.Bootstrap.Key == "" || r.state.Bootstrap.ConsumedAt != nil {
 		return "", false
 	}
 	return fmt.Sprintf("%s %s", RegisterCommandPrefix, r.state.Bootstrap.Key), true
 }
 
-func (r *Registry) IsApprover(openID string) bool {
+func (r *Registry) HasUser(openID string) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	for _, approver := range r.state.Approvers {
-		if approver.Status == ApproverStatusActive && strings.EqualFold(strings.TrimSpace(approver.OpenID), strings.TrimSpace(openID)) {
+	for _, user := range r.state.Users {
+		if user.Status == UserStatusActive && strings.EqualFold(strings.TrimSpace(user.OpenID), strings.TrimSpace(openID)) {
 			return true
 		}
 	}
@@ -139,16 +139,16 @@ func ParseRegistrationMessage(text string) (string, bool) {
 	return parts[2], true
 }
 
-func (r *Registry) RegisterWithBootstrap(openID, chatID, key string) (bool, error) {
+func (r *Registry) RegisterUserWithBootstrap(openID, chatID, key string) (bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	for _, approver := range r.state.Approvers {
-		if approver.Status == ApproverStatusActive && strings.EqualFold(strings.TrimSpace(approver.OpenID), strings.TrimSpace(openID)) {
+	for _, user := range r.state.Users {
+		if user.Status == UserStatusActive && strings.EqualFold(strings.TrimSpace(user.OpenID), strings.TrimSpace(openID)) {
 			return false, nil
 		}
 	}
-	if len(r.state.Approvers) > 0 {
+	if len(r.state.Users) > 0 {
 		return false, fmt.Errorf("bootstrap registration is closed")
 	}
 	if r.state.Bootstrap.Key == "" || r.state.Bootstrap.ConsumedAt != nil {
@@ -159,12 +159,12 @@ func (r *Registry) RegisterWithBootstrap(openID, chatID, key string) (bool, erro
 	}
 
 	now := time.Now().UTC()
-	r.state.Approvers = append(r.state.Approvers, Approver{
+	r.state.Users = append(r.state.Users, User{
 		OpenID:        openID,
 		RegisteredAt:  now,
 		RegisteredVia: "feishu_message",
 		ChatID:        chatID,
-		Status:        ApproverStatusActive,
+		Status:        UserStatusActive,
 	})
 	r.state.Bootstrap.InitializedByOpenID = openID
 	r.state.Bootstrap.ConsumedAt = &now
@@ -178,7 +178,7 @@ func newState() State {
 	return State{
 		Version:   Version,
 		Config:    RuntimeConfig{},
-		Approvers: []Approver{},
+		Users:     []User{},
 		Bootstrap: newBootstrap(),
 	}
 }

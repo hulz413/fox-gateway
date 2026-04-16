@@ -78,13 +78,13 @@ func TestValidateHashDetectsDrift(t *testing.T) {
 	}
 }
 
-func TestIsApproverAllowed(t *testing.T) {
+func TestIsUserAllowed(t *testing.T) {
 	allowlist := []string{"ou_1", "ou_2"}
-	if !IsApproverAllowed(allowlist, "ou_2") {
-		t.Fatal("expected approver to be allowlisted")
+	if !IsUserAllowed(allowlist, "ou_2") {
+		t.Fatal("expected user to be allowlisted")
 	}
-	if IsApproverAllowed(allowlist, "ou_3") {
-		t.Fatal("expected approver to be rejected")
+	if IsUserAllowed(allowlist, "ou_3") {
+		t.Fatal("expected user to be rejected")
 	}
 }
 

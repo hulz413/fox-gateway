@@ -321,7 +321,7 @@ func runStart(stdout io.Writer) error {
 	if err == nil {
 		if message, ok := reg.BootstrapMessage(); ok {
 			fmt.Fprintln(stdout, "")
-			fmt.Fprintln(stdout, "First approver pairing")
+			fmt.Fprintln(stdout, "First user pairing")
 			fmt.Fprintln(stdout, "----------------------")
 			fmt.Fprintln(stdout, "Send this message in the Feishu bot chat:")
 			fmt.Fprintf(stdout, "  %s\n", message)

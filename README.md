@@ -68,9 +68,9 @@ During setup, you will be asked for:
 fox-gateway start
 ```
 
-### 3. Pair the first approver
+### 3. Pair the first user
 
-After setup, start the gateway once and use the printed pairing message in the Feishu bot chat from the account you want to use as the first approver.
+After setup, start the gateway once and use the printed pairing message in the Feishu bot chat from the account you want to use as the first user.
 
 ### 4. Talk to the bot in Feishu
 

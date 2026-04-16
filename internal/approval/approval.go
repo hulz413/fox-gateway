@@ -78,7 +78,7 @@ func ParsePayload(raw string) (Payload, error) {
 	return payload, nil
 }
 
-func IsApproverAllowed(allowlist []string, openID string) bool {
+func IsUserAllowed(allowlist []string, openID string) bool {
 	for _, candidate := range allowlist {
 		if strings.EqualFold(strings.TrimSpace(candidate), strings.TrimSpace(openID)) {
 			return true

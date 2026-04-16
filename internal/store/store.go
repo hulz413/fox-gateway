@@ -75,7 +75,7 @@ func (s *Store) initSchema(ctx context.Context) error {
 			hash TEXT NOT NULL,
 			status TEXT NOT NULL,
 			requested_by TEXT NOT NULL,
-			approver_open_id TEXT NOT NULL DEFAULT '',
+			actor_open_id TEXT NOT NULL DEFAULT '',
 			decision_reason TEXT NOT NULL DEFAULT '',
 			created_at TIMESTAMP NOT NULL,
 			updated_at TIMESTAMP NOT NULL
@@ -257,17 +257,17 @@ func (s *Store) ListJobsByStatuses(ctx context.Context, statuses ...domain.JobSt
 }
 
 func (s *Store) SaveApproval(ctx context.Context, a domain.Approval) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO approvals(job_id,payload_json,hash,status,requested_by,approver_open_id,decision_reason,created_at,updated_at)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO approvals(job_id,payload_json,hash,status,requested_by,actor_open_id,decision_reason,created_at,updated_at)
 		VALUES(?,?,?,?,?,?,?,?,?)
-		ON CONFLICT(job_id) DO UPDATE SET payload_json=excluded.payload_json, hash=excluded.hash, status=excluded.status, requested_by=excluded.requested_by, approver_open_id=excluded.approver_open_id, decision_reason=excluded.decision_reason, updated_at=excluded.updated_at`,
-		a.JobID, a.PayloadJSON, a.Hash, a.Status, a.RequestedBy, a.ApproverOpenID, a.DecisionReason, a.CreatedAt.UTC(), a.UpdatedAt.UTC())
+		ON CONFLICT(job_id) DO UPDATE SET payload_json=excluded.payload_json, hash=excluded.hash, status=excluded.status, requested_by=excluded.requested_by, actor_open_id=excluded.actor_open_id, decision_reason=excluded.decision_reason, updated_at=excluded.updated_at`,
+		a.JobID, a.PayloadJSON, a.Hash, a.Status, a.RequestedBy, a.ActorOpenID, a.DecisionReason, a.CreatedAt.UTC(), a.UpdatedAt.UTC())
 	return err
 }
 
 func (s *Store) GetApproval(ctx context.Context, jobID string) (domain.Approval, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT job_id, payload_json, hash, status, requested_by, approver_open_id, decision_reason, created_at, updated_at FROM approvals WHERE job_id=?`, jobID)
+	row := s.db.QueryRowContext(ctx, `SELECT job_id, payload_json, hash, status, requested_by, actor_open_id, decision_reason, created_at, updated_at FROM approvals WHERE job_id=?`, jobID)
 	var a domain.Approval
-	if err := row.Scan(&a.JobID, &a.PayloadJSON, &a.Hash, &a.Status, &a.RequestedBy, &a.ApproverOpenID, &a.DecisionReason, &a.CreatedAt, &a.UpdatedAt); err != nil {
+	if err := row.Scan(&a.JobID, &a.PayloadJSON, &a.Hash, &a.Status, &a.RequestedBy, &a.ActorOpenID, &a.DecisionReason, &a.CreatedAt, &a.UpdatedAt); err != nil {
 		return domain.Approval{}, err
 	}
 	return a, nil

@@ -98,7 +98,7 @@ func TestHandleLarkEventSendsApprovalCardForMutation(t *testing.T) {
 	}
 }
 
-func TestHandleLarkEventRegistersApproverWithBootstrap(t *testing.T) {
+func TestHandleLarkEventRegistersUserWithBootstrap(t *testing.T) {
 	tempDir := t.TempDir()
 	st, err := store.Open(context.Background(), filepath.Join(tempDir, "fox-gateway.db"))
 	if err != nil {
@@ -131,7 +131,7 @@ func TestHandleLarkEventRegistersApproverWithBootstrap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleLarkEvent error = %v", err)
 	}
-	if !reg.IsApprover("ou_first") {
+	if !reg.HasUser("ou_first") {
 		t.Fatal("expected first user to be registered")
 	}
 	if len(messenger.texts) == 0 || messenger.texts[len(messenger.texts)-1] != "Fox Gateway pairing success :)" {
@@ -309,12 +309,12 @@ fi
 	if !ok {
 		t.Fatalf("ParseRegistrationMessage(%q) failed", message)
 	}
-	registered, err := reg.RegisterWithBootstrap("ou_approver", "chat_1", key)
+	registered, err := reg.RegisterUserWithBootstrap("ou_user", "chat_1", key)
 	if err != nil {
-		t.Fatalf("RegisterWithBootstrap error = %v", err)
+		t.Fatalf("RegisterUserWithBootstrap error = %v", err)
 	}
 	if !registered {
-		t.Fatal("expected approver registration")
+		t.Fatal("expected user registration")
 	}
 
 	now := time.Now().UTC()
@@ -354,7 +354,7 @@ fi
 		JobID:       job.ID,
 		RequestKind: approval.KindApproval,
 		ChoiceID:    "approve",
-		ActorOpenID: "ou_approver",
+		ActorOpenID: "ou_user",
 	}); err != nil {
 		t.Fatalf("HandleLarkAction error = %v", err)
 	}
@@ -387,12 +387,12 @@ func TestHandleLarkActionRejectsStaleConversationContext(t *testing.T) {
 	if !ok {
 		t.Fatalf("ParseRegistrationMessage(%q) failed", message)
 	}
-	registered, err := reg.RegisterWithBootstrap("ou_approver", "chat_1", key)
+	registered, err := reg.RegisterUserWithBootstrap("ou_user", "chat_1", key)
 	if err != nil {
-		t.Fatalf("RegisterWithBootstrap error = %v", err)
+		t.Fatalf("RegisterUserWithBootstrap error = %v", err)
 	}
 	if !registered {
-		t.Fatal("expected approver registration")
+		t.Fatal("expected user registration")
 	}
 
 	now := time.Now().UTC()
@@ -441,7 +441,7 @@ func TestHandleLarkActionRejectsStaleConversationContext(t *testing.T) {
 		JobID:       job.ID,
 		RequestKind: approval.KindApproval,
 		ChoiceID:    "approve",
-		ActorOpenID: "ou_approver",
+		ActorOpenID: "ou_user",
 	}); err != nil {
 		t.Fatalf("HandleLarkAction error = %v", err)
 	}

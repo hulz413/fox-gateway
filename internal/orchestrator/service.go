@@ -143,7 +143,7 @@ func (s *Service) HandleLarkAction(ctx context.Context, action larkutil.ActionRe
 	conversation := conversationContext.conversation
 	if payload.ConversationGeneration != conversation.SessionGeneration || strings.TrimSpace(payload.ConversationSessionID) != conversationContext.sessionID || payload.ConversationMessageID != job.MessageID {
 		approvalRecord.Status = domain.ApprovalStatusInvalidated
-		approvalRecord.ApproverOpenID = action.ActorOpenID
+		approvalRecord.ActorOpenID = action.ActorOpenID
 		approvalRecord.DecisionReason = "conversation context changed before approval"
 		approvalRecord.UpdatedAt = time.Now().UTC()
 		job.Status = domain.JobStatusRejected
@@ -163,7 +163,7 @@ func (s *Service) HandleLarkAction(ctx context.Context, action larkutil.ActionRe
 	payload.BaseRepoState = currentRepoState(s.cfg.WorkspaceRoot)
 	if !approval.ValidateHash(payload, approvalRecord.Hash) {
 		approvalRecord.Status = domain.ApprovalStatusInvalidated
-		approvalRecord.ApproverOpenID = action.ActorOpenID
+		approvalRecord.ActorOpenID = action.ActorOpenID
 		approvalRecord.DecisionReason = "approval payload drifted before execution"
 		approvalRecord.UpdatedAt = time.Now().UTC()
 		job.Status = domain.JobStatusRejected
@@ -178,12 +178,12 @@ func (s *Service) HandleLarkAction(ctx context.Context, action larkutil.ActionRe
 		return s.messenger.SendText(ctx, job.ChatID, "Pairing or approval context changed. Please send the request again.")
 	}
 
-	approvalRecord.ApproverOpenID = action.ActorOpenID
+	approvalRecord.ActorOpenID = action.ActorOpenID
 	approvalRecord.UpdatedAt = time.Now().UTC()
 	switch payload.Kind {
 	case approval.KindApproval:
-		if s.registry == nil || !s.registry.IsApprover(action.ActorOpenID) {
-			return fmt.Errorf("approver is not registered")
+		if s.registry == nil || !s.registry.HasUser(action.ActorOpenID) {
+			return fmt.Errorf("user is not registered")
 		}
 		if strings.EqualFold(action.ChoiceID, "approve") {
 			approvalRecord.Status = domain.ApprovalStatusApproved
@@ -430,12 +430,12 @@ func (s *Service) handleRegistration(ctx context.Context, event domain.LarkMessa
 	if !ok {
 		return false, nil
 	}
-	registered, err := s.registry.RegisterWithBootstrap(event.SenderOpenID, event.ChatID, key)
+	registered, err := s.registry.RegisterUserWithBootstrap(event.SenderOpenID, event.ChatID, key)
 	if err != nil {
 		return true, s.messenger.SendText(ctx, event.ChatID, fmt.Sprintf("Fox Gateway pairing failed: %v", err))
 	}
 	if !registered {
-		return true, s.messenger.SendText(ctx, event.ChatID, "Fox Gateway already paired with this approver.")
+		return true, s.messenger.SendText(ctx, event.ChatID, "Fox Gateway already paired with this user.")
 	}
 	return true, s.messenger.SendText(ctx, event.ChatID, "Fox Gateway pairing success :)")
 }
