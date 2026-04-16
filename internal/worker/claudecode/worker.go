@@ -3,6 +3,7 @@ package claudecode
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,12 +13,15 @@ import (
 )
 
 type Request struct {
-	JobID         string
-	ClaudePath    string
-	WorkspaceRoot string
-	Prompt        string
-	Mutating      bool
-	Async         bool
+	JobID                     string
+	ClaudePath                string
+	WorkspaceRoot             string
+	Prompt                    string
+	Mutating                  bool
+	Async                     bool
+	OutputFormat              string
+	DisableSessionPersistence bool
+	ResumeSessionID           string
 }
 
 type Result struct {
@@ -28,6 +32,8 @@ type Result struct {
 	StartedAt  time.Time
 	FinishedAt time.Time
 	Command    string
+	Text       string
+	SessionID  string
 }
 
 type Runner struct{}
@@ -44,6 +50,11 @@ func (r *Runner) Probe(ctx context.Context, req Request) (Result, error) {
 	if strings.TrimSpace(req.Prompt) == "" {
 		req.Prompt = "Reply with OK only."
 	}
+	if strings.TrimSpace(req.OutputFormat) == "" {
+		req.OutputFormat = "text"
+	}
+	req.DisableSessionPersistence = true
+	req.ResumeSessionID = ""
 	return r.execute(ctx, req)
 }
 
@@ -84,6 +95,11 @@ func (r *Runner) execute(ctx context.Context, req Request) (Result, error) {
 		FinishedAt: finishedAt,
 		Command:    fmt.Sprintf("%s %s", req.ClaudePath, strings.Join(args, " ")),
 	}
+	if err == nil && usesJSONOutput(req) {
+		if parseErr := parseJSONResult(&result); parseErr != nil {
+			return result, parseErr
+		}
+	}
 	if err != nil {
 		return result, err
 	}
@@ -91,11 +107,50 @@ func (r *Runner) execute(ctx context.Context, req Request) (Result, error) {
 }
 
 func buildCommand(ctx context.Context, req Request) (*exec.Cmd, []string) {
-	args := []string{"-p", req.Prompt, "--output-format", "text", "--no-session-persistence"}
+	outputFormat := strings.TrimSpace(req.OutputFormat)
+	if outputFormat == "" {
+		outputFormat = "text"
+	}
+	args := []string{"-p", req.Prompt, "--output-format", outputFormat}
+	if strings.TrimSpace(req.ResumeSessionID) != "" {
+		args = append(args, "--resume", req.ResumeSessionID)
+	}
+	if req.DisableSessionPersistence && strings.TrimSpace(req.ResumeSessionID) == "" {
+		args = append(args, "--no-session-persistence")
+	}
 	cmd := exec.CommandContext(ctx, req.ClaudePath, args...)
 	cmd.Dir = req.WorkspaceRoot
 	cmd.Env = sanitizedEnv(os.Environ())
 	return cmd, args
+}
+
+func usesJSONOutput(req Request) bool {
+	return strings.EqualFold(strings.TrimSpace(req.OutputFormat), "json")
+}
+
+func parseJSONResult(result *Result) error {
+	trimmed := strings.TrimSpace(result.Stdout)
+	if trimmed == "" {
+		return fmt.Errorf("claude returned empty JSON output")
+	}
+	var payload struct {
+		Result    string `json:"result"`
+		SessionID string `json:"session_id"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &payload); err != nil {
+		return fmt.Errorf("parse claude json output: %w", err)
+	}
+	result.Text = payload.Result
+	result.SessionID = payload.SessionID
+	return nil
+}
+
+func IsMissingSessionError(err error, result Result) bool {
+	if err == nil {
+		return false
+	}
+	combined := strings.ToLower(strings.Join([]string{err.Error(), result.Stdout, result.Stderr}, "\n"))
+	return strings.Contains(combined, "no conversation found with session id")
 }
 
 func KillProcess(pid int) error {

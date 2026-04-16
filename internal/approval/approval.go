@@ -9,15 +9,18 @@ import (
 )
 
 type Payload struct {
-	WorkspaceID        string   `json:"workspace_id"`
-	BaseRepoState      string   `json:"base_repo_state"`
-	IntentCategory     string   `json:"intent_category"`
-	AllowedActions     []string `json:"allowed_actions"`
-	AllowedPaths       []string `json:"allowed_paths"`
-	BlockedPathClasses []string `json:"blocked_path_classes"`
-	RuntimeLimitSec    int      `json:"runtime_limit_sec"`
-	Async              bool     `json:"async"`
-	Nonce              string   `json:"nonce"`
+	WorkspaceID            string   `json:"workspace_id"`
+	BaseRepoState          string   `json:"base_repo_state"`
+	ConversationSessionID  string   `json:"conversation_session_id"`
+	ConversationGeneration int64    `json:"conversation_generation"`
+	ConversationMessageID  string   `json:"conversation_message_id"`
+	IntentCategory         string   `json:"intent_category"`
+	AllowedActions         []string `json:"allowed_actions"`
+	AllowedPaths           []string `json:"allowed_paths"`
+	BlockedPathClasses     []string `json:"blocked_path_classes"`
+	RuntimeLimitSec        int      `json:"runtime_limit_sec"`
+	Async                  bool     `json:"async"`
+	Nonce                  string   `json:"nonce"`
 }
 
 func HashPayload(payload Payload) (string, error) {

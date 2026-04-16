@@ -34,12 +34,14 @@ const (
 )
 
 type Conversation struct {
-	ChatID           string
-	LastMessageID    string
-	LastSenderOpenID string
-	LastMessageText  string
-	LastIntent       string
-	UpdatedAt        time.Time
+	ChatID            string
+	LastMessageID     string
+	LastSenderOpenID  string
+	LastMessageText   string
+	LastIntent        string
+	ClaudeSessionID   string
+	SessionGeneration int64
+	UpdatedAt         time.Time
 }
 
 type Job struct {

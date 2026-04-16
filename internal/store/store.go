@@ -50,6 +50,8 @@ func (s *Store) initSchema(ctx context.Context) error {
 			last_sender_open_id TEXT NOT NULL,
 			last_message_text TEXT NOT NULL,
 			last_intent TEXT NOT NULL,
+			claude_session_id TEXT NOT NULL DEFAULT '',
+			session_generation INTEGER NOT NULL DEFAULT 0,
 			updated_at TIMESTAMP NOT NULL
 		);`,
 		`CREATE TABLE IF NOT EXISTS jobs (
@@ -104,20 +106,100 @@ func (s *Store) initSchema(ctx context.Context) error {
 			return err
 		}
 	}
+	return s.ensureConversationColumns(ctx)
+}
+
+func (s *Store) ensureConversationColumns(ctx context.Context) error {
+	columns, err := s.tableColumns(ctx, "conversations")
+	if err != nil {
+		return err
+	}
+	if !columns["claude_session_id"] {
+		if _, err := s.db.ExecContext(ctx, `ALTER TABLE conversations ADD COLUMN claude_session_id TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+	if !columns["session_generation"] {
+		if _, err := s.db.ExecContext(ctx, `ALTER TABLE conversations ADD COLUMN session_generation INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
+func (s *Store) tableColumns(ctx context.Context, table string) (map[string]bool, error) {
+	rows, err := s.db.QueryContext(ctx, fmt.Sprintf(`PRAGMA table_info(%s)`, table))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	columns := make(map[string]bool)
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			columnType string
+			notNull    int
+			defaultVal any
+			pk         int
+		)
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultVal, &pk); err != nil {
+			return nil, err
+		}
+		columns[name] = true
+	}
+	return columns, rows.Err()
+}
+
 func (s *Store) UpsertConversation(ctx context.Context, c domain.Conversation) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO conversations(chat_id,last_message_id,last_sender_open_id,last_message_text,last_intent,updated_at)
-		VALUES(?,?,?,?,?,?)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO conversations(chat_id,last_message_id,last_sender_open_id,last_message_text,last_intent,claude_session_id,session_generation,updated_at)
+		VALUES(?,?,?,?,?,?,?,?)
 		ON CONFLICT(chat_id) DO UPDATE SET
 		last_message_id=excluded.last_message_id,
 		last_sender_open_id=excluded.last_sender_open_id,
 		last_message_text=excluded.last_message_text,
 		last_intent=excluded.last_intent,
+		claude_session_id=excluded.claude_session_id,
+		session_generation=excluded.session_generation,
 		updated_at=excluded.updated_at`,
-		c.ChatID, c.LastMessageID, c.LastSenderOpenID, c.LastMessageText, c.LastIntent, c.UpdatedAt.UTC())
+		c.ChatID, c.LastMessageID, c.LastSenderOpenID, c.LastMessageText, c.LastIntent, c.ClaudeSessionID, c.SessionGeneration, c.UpdatedAt.UTC())
 	return err
+}
+
+func (s *Store) GetConversation(ctx context.Context, chatID string) (domain.Conversation, error) {
+	row := s.db.QueryRowContext(ctx, `SELECT chat_id, last_message_id, last_sender_open_id, last_message_text, last_intent, claude_session_id, session_generation, updated_at FROM conversations WHERE chat_id=?`, chatID)
+	return scanConversation(row)
+}
+
+func (s *Store) UpdateConversationSession(ctx context.Context, chatID, sessionID string, expectedGeneration int64, updatedAt time.Time) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE conversations SET claude_session_id=?, updated_at=? WHERE chat_id=? AND session_generation=?`, sessionID, updatedAt.UTC(), chatID, expectedGeneration)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) ClearConversationSession(ctx context.Context, chatID string, updatedAt time.Time) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE conversations SET claude_session_id='', session_generation=session_generation+1, updated_at=? WHERE chat_id=?`, updatedAt.UTC(), chatID)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (s *Store) CreateJob(ctx context.Context, j domain.Job) error {
@@ -243,6 +325,14 @@ func (s *Store) InterruptInProgressJobs(ctx context.Context) error {
 func (s *Store) MarkWorkerSessionsInterrupted(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE worker_sessions SET status='interrupted', finished_at=COALESCE(finished_at, ?) WHERE status IN ('running','starting')`, time.Now().UTC())
 	return err
+}
+
+func scanConversation(scanner interface{ Scan(dest ...any) error }) (domain.Conversation, error) {
+	var c domain.Conversation
+	if err := scanner.Scan(&c.ChatID, &c.LastMessageID, &c.LastSenderOpenID, &c.LastMessageText, &c.LastIntent, &c.ClaudeSessionID, &c.SessionGeneration, &c.UpdatedAt); err != nil {
+		return domain.Conversation{}, err
+	}
+	return c, nil
 }
 
 func scanJob(scanner interface{ Scan(dest ...any) error }) (domain.Job, error) {

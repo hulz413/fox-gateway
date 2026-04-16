@@ -38,3 +38,37 @@ func (l *WorkspaceLock) Release(ownerID string) {
 	l.ownerID = ""
 	l.cond.Broadcast()
 }
+
+type KeyedLock struct {
+	mu    sync.Mutex
+	locks map[string]*sync.Mutex
+}
+
+func NewKeyedLock() *KeyedLock {
+	return &KeyedLock{locks: make(map[string]*sync.Mutex)}
+}
+
+func (l *KeyedLock) Acquire(key string) {
+	if key == "" {
+		return
+	}
+	l.mutexFor(key).Lock()
+}
+
+func (l *KeyedLock) Release(key string) {
+	if key == "" {
+		return
+	}
+	l.mutexFor(key).Unlock()
+}
+
+func (l *KeyedLock) mutexFor(key string) *sync.Mutex {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	m, ok := l.locks[key]
+	if !ok {
+		m = &sync.Mutex{}
+		l.locks[key] = m
+	}
+	return m
+}

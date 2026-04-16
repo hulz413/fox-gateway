@@ -76,6 +76,17 @@ After setup, start the gateway once and use the printed pairing message in the F
 
 After pairing, send messages to the Feishu bot and Fox Gateway will forward them to the local Claude Code worker.
 
+Each Feishu chat keeps a continuous Claude Code conversation context for that chat. Follow-up messages in the same chat reuse the previous Claude session.
+
+To reset the chat context and start a fresh conversation, send either command in Feishu:
+
+```text
+/clear
+/new
+```
+
+Both commands clear the current chat's stored Claude session. The next message in that chat starts a new context from scratch.
+
 ## Notes
 
 - Local config and pairing state live under `~/.fox-gateway/`

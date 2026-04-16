@@ -7,26 +7,32 @@ import (
 
 func TestHashPayloadDeterministicAcrossOrder(t *testing.T) {
 	left := Payload{
-		WorkspaceID:        "/tmp/workspace",
-		BaseRepoState:      "nogit",
-		IntentCategory:     "mutation",
-		AllowedActions:     []string{"code_modify", "lint_test"},
-		AllowedPaths:       []string{"/repo/a.go", "/repo/b.go"},
-		BlockedPathClasses: []string{"env", "secrets"},
-		RuntimeLimitSec:    900,
-		Async:              true,
-		Nonce:              "job_123",
+		WorkspaceID:            "/tmp/workspace",
+		BaseRepoState:          "nogit",
+		ConversationSessionID:  "session-1",
+		ConversationGeneration: 2,
+		ConversationMessageID:  "msg_1",
+		IntentCategory:         "mutation",
+		AllowedActions:         []string{"code_modify", "lint_test"},
+		AllowedPaths:           []string{"/repo/a.go", "/repo/b.go"},
+		BlockedPathClasses:     []string{"env", "secrets"},
+		RuntimeLimitSec:        900,
+		Async:                  true,
+		Nonce:                  "job_123",
 	}
 	right := Payload{
-		WorkspaceID:        "/tmp/workspace",
-		BaseRepoState:      "nogit",
-		IntentCategory:     "mutation",
-		AllowedActions:     []string{"lint_test", "code_modify"},
-		AllowedPaths:       []string{"/repo/b.go", "/repo/a.go"},
-		BlockedPathClasses: []string{"secrets", "env"},
-		RuntimeLimitSec:    900,
-		Async:              true,
-		Nonce:              "job_123",
+		WorkspaceID:            "/tmp/workspace",
+		BaseRepoState:          "nogit",
+		ConversationSessionID:  "session-1",
+		ConversationGeneration: 2,
+		ConversationMessageID:  "msg_1",
+		IntentCategory:         "mutation",
+		AllowedActions:         []string{"lint_test", "code_modify"},
+		AllowedPaths:           []string{"/repo/b.go", "/repo/a.go"},
+		BlockedPathClasses:     []string{"secrets", "env"},
+		RuntimeLimitSec:        900,
+		Async:                  true,
+		Nonce:                  "job_123",
 	}
 
 	leftHash, err := HashPayload(left)
@@ -45,14 +51,17 @@ func TestHashPayloadDeterministicAcrossOrder(t *testing.T) {
 
 func TestValidateHashDetectsDrift(t *testing.T) {
 	payload := Payload{
-		WorkspaceID:     "/tmp/workspace",
-		BaseRepoState:   "abc123",
-		IntentCategory:  "mutation",
-		AllowedActions:  []string{"code_modify"},
-		AllowedPaths:    []string{"/repo"},
-		RuntimeLimitSec: 900,
-		Async:           true,
-		Nonce:           "job_123",
+		WorkspaceID:            "/tmp/workspace",
+		BaseRepoState:          "abc123",
+		ConversationSessionID:  "session-1",
+		ConversationGeneration: 1,
+		ConversationMessageID:  "msg_1",
+		IntentCategory:         "mutation",
+		AllowedActions:         []string{"code_modify"},
+		AllowedPaths:           []string{"/repo"},
+		RuntimeLimitSec:        900,
+		Async:                  true,
+		Nonce:                  "job_123",
 	}
 
 	hash, err := HashPayload(payload)
@@ -78,15 +87,18 @@ func TestIsApproverAllowed(t *testing.T) {
 
 func TestParsePayloadRoundTrip(t *testing.T) {
 	payload := Payload{
-		WorkspaceID:        "/tmp/workspace",
-		BaseRepoState:      "abc123",
-		IntentCategory:     "mutation",
-		AllowedActions:     []string{"code_modify", "lint_test"},
-		AllowedPaths:       []string{"/repo"},
-		BlockedPathClasses: []string{"env", "secrets"},
-		RuntimeLimitSec:    900,
-		Async:              true,
-		Nonce:              "job_123",
+		WorkspaceID:            "/tmp/workspace",
+		BaseRepoState:          "abc123",
+		ConversationSessionID:  "session-1",
+		ConversationGeneration: 1,
+		ConversationMessageID:  "msg_1",
+		IntentCategory:         "mutation",
+		AllowedActions:         []string{"code_modify", "lint_test"},
+		AllowedPaths:           []string{"/repo"},
+		BlockedPathClasses:     []string{"env", "secrets"},
+		RuntimeLimitSec:        900,
+		Async:                  true,
+		Nonce:                  "job_123",
 	}
 
 	raw, err := json.Marshal(payload)
