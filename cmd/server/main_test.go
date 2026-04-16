@@ -6,9 +6,20 @@ import (
 	"testing"
 )
 
-func TestResolveCommandDefaultsToStart(t *testing.T) {
-	if got := resolveCommand(nil); got != "start" {
-		t.Fatalf("resolveCommand(nil) = %q, want start", got)
+func TestResolveCommandDefaultsToEmpty(t *testing.T) {
+	if got := resolveCommand(nil); got != "" {
+		t.Fatalf("resolveCommand(nil) = %q, want empty string", got)
+	}
+}
+
+func TestRunWithoutArgsShowsHelp(t *testing.T) {
+	var out bytes.Buffer
+	if err := run(nil, strings.NewReader(""), &out, &out); err != nil {
+		t.Fatalf("run help error = %v", err)
+	}
+	got := out.String()
+	if !strings.Contains(got, "Usage:") || !strings.Contains(got, "start    Start fox-gateway in the background") {
+		t.Fatalf("help output = %q", got)
 	}
 }
 

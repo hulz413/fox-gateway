@@ -105,6 +105,17 @@ build_download_url() {
   fi
 }
 
+download_file() {
+  url="$1"
+  destination="$2"
+
+  if [ -t 2 ]; then
+    curl --fail --location --progress-bar "$url" -o "$destination"
+  else
+    curl --fail --show-error --silent --location "$url" -o "$destination"
+  fi
+}
+
 main() {
   PATH_UPDATED=0
 
@@ -123,7 +134,7 @@ main() {
 
   log "Installing $BINARY_NAME for $target"
   log "Downloading $download_url"
-  curl -fsSL "$download_url" -o "$tmp_file"
+  download_file "$download_url" "$tmp_file"
   chmod +x "$tmp_file"
   mv "$tmp_file" "$INSTALL_DIR/$BINARY_NAME"
 

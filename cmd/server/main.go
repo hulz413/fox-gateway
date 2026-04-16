@@ -50,7 +50,11 @@ func main() {
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
-	switch resolveCommand(args) {
+	command := resolveCommand(args)
+	switch command {
+	case "", "help", "-h", "--help":
+		_, _ = io.WriteString(stdout, usageText())
+		return nil
 	case "setup":
 		return setupcmd.Run(stdin, stdout, registry.DefaultPath())
 	case "serve":
@@ -69,15 +73,19 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	case "version":
 		return runVersion(stdout)
 	default:
-		return fmt.Errorf("unknown command %q\n\nSupported commands:\n  fox-gateway setup\n  fox-gateway start\n  fox-gateway stop\n  fox-gateway restart\n  fox-gateway status\n  fox-gateway version", resolveCommand(args))
+		return fmt.Errorf("unknown command %q\n\n%s", command, usageText())
 	}
 }
 
 func resolveCommand(args []string) string {
 	if len(args) == 0 {
-		return "start"
+		return ""
 	}
 	return args[0]
+}
+
+func usageText() string {
+	return "Usage:\n  fox-gateway <command>\n\nCommands:\n  setup    Configure fox-gateway locally\n  start    Start fox-gateway in the background\n  stop     Stop the running fox-gateway service\n  restart  Restart the fox-gateway service\n  status   Show current fox-gateway status\n  version  Show fox-gateway build version\n  help     Show this help\n"
 }
 
 func runServe(stdout io.Writer) (runErr error) {
