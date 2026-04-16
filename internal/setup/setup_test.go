@@ -2,11 +2,14 @@ package setup
 
 import (
 	"bytes"
+	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"fox-gateway/internal/registry"
+	"fox-gateway/internal/store"
 )
 
 func TestRunWritesConfigAndBootstrapMessage(t *testing.T) {
@@ -26,6 +29,14 @@ func TestRunWritesConfigAndBootstrapMessage(t *testing.T) {
 	if cfg.LarkAppID != "cli_test" || cfg.LarkAppSecret != "secret" {
 		t.Fatalf("unexpected config: %+v", cfg)
 	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile error = %v", err)
+	}
+	content := string(body)
+	if strings.Contains(content, "\"bootstrap\"") || strings.Contains(content, "\"users\"") || strings.Contains(content, "\"config\"") {
+		t.Fatalf("expected pure config file, got: %s", content)
+	}
 	if !strings.Contains(output.String(), "Fox Gateway Setup") {
 		t.Fatalf("expected title-cased setup header: %s", output.String())
 	}
@@ -44,8 +55,11 @@ func TestRunWritesConfigAndBootstrapMessage(t *testing.T) {
 	if strings.Contains(output.String(), "Verification token:") {
 		t.Fatalf("verification token should not be printed: %s", output.String())
 	}
-	if !strings.Contains(output.String(), "After the gateway starts, open the Feishu chat with the bot and send this exact message:") {
-		t.Fatalf("expected pairing instructions in completion output: %s", output.String())
+	if strings.Contains(output.String(), "After the gateway starts, open the Feishu chat with the bot and send this exact message:") {
+		t.Fatalf("setup should not print pairing instructions: %s", output.String())
+	}
+	if strings.Contains(output.String(), "Feishu user pairing") {
+		t.Fatalf("setup should not print pairing section: %s", output.String())
 	}
 	if strings.Contains(output.String(), "Overwrite the existing local configuration?") {
 		t.Fatalf("setup should not ask for overwrite confirmation: %s", output.String())
@@ -53,7 +67,16 @@ func TestRunWritesConfigAndBootstrapMessage(t *testing.T) {
 	if strings.Contains(output.String(), "Write local configuration now?") || strings.Contains(output.String(), "Continue [Y/n]") {
 		t.Fatalf("setup should not ask for final confirmation: %s", output.String())
 	}
-	if message, ok := reg.BootstrapMessage(); !ok || !strings.HasPrefix(message, registry.RegisterCommandPrefix+" ") {
+	st, err := store.Open(context.Background(), registry.ExpandHome(cfg.DBPath))
+	if err != nil {
+		t.Fatalf("store.Open error = %v", err)
+	}
+	defer st.Close()
+	message, ok, err := st.BootstrapMessage(context.Background())
+	if err != nil {
+		t.Fatalf("BootstrapMessage error = %v", err)
+	}
+	if !ok || !strings.HasPrefix(message, registry.RegisterCommandPrefix+" ") {
 		t.Fatalf("unexpected bootstrap message: %q, %v", message, ok)
 	}
 }

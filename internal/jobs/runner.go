@@ -126,15 +126,17 @@ func (r *Runner) execute(ctx context.Context, req WorkerRequest) error {
 	_ = r.store.SaveWorkerSession(ctx, ws)
 
 	if runErr != nil {
+		failureSummary := summarizeFailure(runErr, result)
 		job.Status = domain.JobStatusFailed
-		job.ErrorText = runErr.Error()
-		job.ResultSummary = summarizeResult(result)
+		job.ErrorText = failureSummary
+		job.ResultSummary = failureSummary
 	} else if result.RequesterConfirmation != nil && r.onConfirmation != nil {
 		job, runErr = r.onConfirmation(ctx, job, result)
 		if runErr != nil {
+			failureSummary := summarizeFailure(runErr, result)
 			job.Status = domain.JobStatusFailed
-			job.ErrorText = runErr.Error()
-			job.ResultSummary = summarizeResult(result)
+			job.ErrorText = failureSummary
+			job.ResultSummary = failureSummary
 		}
 	} else {
 		job.Status = domain.JobStatusSucceeded
@@ -252,8 +254,41 @@ func summarizeResult(result claudecode.Result) string {
 	}
 }
 
+func summarizeFailure(runErr error, result claudecode.Result) string {
+	if trimmed := trimForSummary(result.Stderr); trimmed != "" {
+		return trimmed
+	}
+	if trimmed := trimForSummary(result.Stdout); trimmed != "" {
+		return trimmed
+	}
+	if trimmed := trimForSummary(result.Text); trimmed != "" {
+		return trimmed
+	}
+	message := strings.TrimSpace(runErr.Error())
+	if strings.HasPrefix(message, "exit status ") {
+		return "command failed"
+	}
+	if len(message) > 800 {
+		return message[:800]
+	}
+	return message
+}
+
 func trimForSummary(value string) string {
 	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	lines := strings.Split(value, "\n")
+	filtered := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "exit status ") {
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+	value = strings.TrimSpace(strings.Join(filtered, "\n"))
 	if len(value) > 800 {
 		return value[:800]
 	}

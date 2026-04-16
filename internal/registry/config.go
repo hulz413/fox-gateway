@@ -43,7 +43,7 @@ func (c RuntimeConfig) Validate() error {
 func (r *Registry) Config() RuntimeConfig {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.state.Config
+	return r.config
 }
 
 func (r *Registry) SetConfig(cfg RuntimeConfig) error {
@@ -52,15 +52,12 @@ func (r *Registry) SetConfig(cfg RuntimeConfig) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.state.Config = cfg
-	if r.state.Bootstrap.Key == "" {
-		r.state.Bootstrap = newBootstrap()
-	}
+	r.config = cfg
 	return r.saveLocked()
 }
 
 func (r *Registry) HasConfig() bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.state.Config.Validate() == nil
+	return r.config.Validate() == nil
 }

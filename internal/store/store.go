@@ -7,11 +7,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 
 	"fox-gateway/internal/domain"
+	"fox-gateway/internal/registry"
+)
+
+const (
+	registeredUserStatusActive  = "active"
+	bootstrapPairingModeChatKey = "chat_key"
 )
 
 type Store struct {
@@ -79,6 +86,21 @@ func (s *Store) initSchema(ctx context.Context) error {
 			decision_reason TEXT NOT NULL DEFAULT '',
 			created_at TIMESTAMP NOT NULL,
 			updated_at TIMESTAMP NOT NULL
+		);`,
+		`CREATE TABLE IF NOT EXISTS registered_users (
+			open_id TEXT PRIMARY KEY,
+			chat_id TEXT NOT NULL,
+			registered_via TEXT NOT NULL,
+			status TEXT NOT NULL,
+			registered_at TIMESTAMP NOT NULL
+		);`,
+		`CREATE TABLE IF NOT EXISTS bootstrap_pairing (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			mode TEXT NOT NULL,
+			pairing_key TEXT NOT NULL,
+			issued_at TIMESTAMP NOT NULL,
+			consumed_at TIMESTAMP,
+			initialized_by_open_id TEXT NOT NULL DEFAULT ''
 		);`,
 		`CREATE TABLE IF NOT EXISTS audit_events (
 			id TEXT PRIMARY KEY,
@@ -254,6 +276,125 @@ func (s *Store) ListJobsByStatuses(ctx context.Context, statuses ...domain.JobSt
 		jobs = append(jobs, job)
 	}
 	return jobs, rows.Err()
+}
+
+func (s *Store) EnsureBootstrapPairing(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := ensureBootstrapPairingTx(ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) BootstrapMessage(ctx context.Context) (string, bool, error) {
+	if err := s.EnsureBootstrapPairing(ctx); err != nil {
+		return "", false, err
+	}
+	var users int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM registered_users WHERE status=?`, registeredUserStatusActive).Scan(&users); err != nil {
+		return "", false, err
+	}
+	if users > 0 {
+		return "", false, nil
+	}
+	var key string
+	var consumedAt sql.NullTime
+	if err := s.db.QueryRowContext(ctx, `SELECT pairing_key, consumed_at FROM bootstrap_pairing WHERE id=1`).Scan(&key, &consumedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	if consumedAt.Valid || strings.TrimSpace(key) == "" {
+		return "", false, nil
+	}
+	return fmt.Sprintf("%s %s", registry.RegisterCommandPrefix, key), true, nil
+}
+
+func (s *Store) HasRegisteredUser(ctx context.Context, openID string) (bool, error) {
+	var count int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM registered_users WHERE status=? AND lower(trim(open_id))=lower(trim(?))`, registeredUserStatusActive, openID).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+func (s *Store) RegisterFirstUserWithBootstrap(ctx context.Context, openID, chatID, key string) (bool, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	if err := ensureBootstrapPairingTx(ctx, tx); err != nil {
+		return false, err
+	}
+	var duplicateCount int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(1) FROM registered_users WHERE status=? AND lower(trim(open_id))=lower(trim(?))`, registeredUserStatusActive, openID).Scan(&duplicateCount); err != nil {
+		return false, err
+	}
+	if duplicateCount > 0 {
+		return false, nil
+	}
+	var userCount int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(1) FROM registered_users WHERE status=?`, registeredUserStatusActive).Scan(&userCount); err != nil {
+		return false, err
+	}
+	if userCount > 0 {
+		return false, fmt.Errorf("bootstrap registration is closed")
+	}
+	var pairingKey string
+	var consumedAt sql.NullTime
+	if err := tx.QueryRowContext(ctx, `SELECT pairing_key, consumed_at FROM bootstrap_pairing WHERE id=1`).Scan(&pairingKey, &consumedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, fmt.Errorf("bootstrap registration is unavailable")
+		}
+		return false, err
+	}
+	if strings.TrimSpace(pairingKey) == "" || consumedAt.Valid {
+		return false, fmt.Errorf("bootstrap registration is unavailable")
+	}
+	if strings.TrimSpace(key) != strings.TrimSpace(pairingKey) {
+		return false, fmt.Errorf("invalid registration key")
+	}
+	now := time.Now().UTC()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO registered_users(open_id,chat_id,registered_via,status,registered_at) VALUES(?,?,?,?,?)`, openID, chatID, "feishu_message", registeredUserStatusActive, now); err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE bootstrap_pairing SET consumed_at=?, initialized_by_open_id=? WHERE id=1`, now, openID); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func ensureBootstrapPairingTx(ctx context.Context, tx *sql.Tx) error {
+	var userCount int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(1) FROM registered_users WHERE status=?`, registeredUserStatusActive).Scan(&userCount); err != nil {
+		return err
+	}
+	if userCount > 0 {
+		return nil
+	}
+	var pairingKey string
+	var consumedAt sql.NullTime
+	if err := tx.QueryRowContext(ctx, `SELECT pairing_key, consumed_at FROM bootstrap_pairing WHERE id=1`).Scan(&pairingKey, &consumedAt); err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `INSERT INTO bootstrap_pairing(id,mode,pairing_key,issued_at,initialized_by_open_id) VALUES(1,?,?,?,'')`, bootstrapPairingModeChatKey, registry.RandomHex(16), time.Now().UTC())
+		return err
+	}
+	if strings.TrimSpace(pairingKey) != "" && !consumedAt.Valid {
+		return nil
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE bootstrap_pairing SET mode=?, pairing_key=?, issued_at=?, consumed_at=NULL, initialized_by_open_id='' WHERE id=1`, bootstrapPairingModeChatKey, registry.RandomHex(16), time.Now().UTC())
+	return err
 }
 
 func (s *Store) SaveApproval(ctx context.Context, a domain.Approval) error {

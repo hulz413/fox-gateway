@@ -27,14 +27,13 @@ type Messenger interface {
 type Service struct {
 	cfg       config.Config
 	store     *store.Store
-	registry  *registry.Registry
 	messenger Messenger
 	jobRunner *jobs.Runner
 	chatLock  *jobs.KeyedLock
 }
 
-func NewService(cfg config.Config, st *store.Store, reg *registry.Registry, messenger Messenger) *Service {
-	svc := &Service{cfg: cfg, store: st, registry: reg, messenger: messenger, chatLock: jobs.NewKeyedLock()}
+func NewService(cfg config.Config, st *store.Store, messenger Messenger) *Service {
+	svc := &Service{cfg: cfg, store: st, messenger: messenger, chatLock: jobs.NewKeyedLock()}
 	svc.jobRunner = jobs.NewRunner(st, claudecode.New(), cfg.MaxReadOnlyWorkers, svc.onJobUpdate, svc.onConfirmationRequest)
 	return svc
 }
@@ -182,7 +181,11 @@ func (s *Service) HandleLarkAction(ctx context.Context, action larkutil.ActionRe
 	approvalRecord.UpdatedAt = time.Now().UTC()
 	switch payload.Kind {
 	case approval.KindApproval:
-		if s.registry == nil || !s.registry.HasUser(action.ActorOpenID) {
+		hasUser, err := s.store.HasRegisteredUser(ctx, action.ActorOpenID)
+		if err != nil {
+			return err
+		}
+		if !hasUser {
 			return fmt.Errorf("user is not registered")
 		}
 		if strings.EqualFold(action.ChoiceID, "approve") {
@@ -423,14 +426,11 @@ func buildRequesterConfirmationResumePrompt(originalPrompt string, payload appro
 }
 
 func (s *Service) handleRegistration(ctx context.Context, event domain.LarkMessageEvent) (bool, error) {
-	if s.registry == nil {
-		return false, nil
-	}
 	key, ok := registry.ParseRegistrationMessage(event.Text)
 	if !ok {
 		return false, nil
 	}
-	registered, err := s.registry.RegisterUserWithBootstrap(event.SenderOpenID, event.ChatID, key)
+	registered, err := s.store.RegisterFirstUserWithBootstrap(ctx, event.SenderOpenID, event.ChatID, key)
 	if err != nil {
 		return true, s.messenger.SendText(ctx, event.ChatID, fmt.Sprintf("Fox Gateway pairing failed: %v", err))
 	}

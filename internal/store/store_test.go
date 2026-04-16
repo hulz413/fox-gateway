@@ -4,12 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 
 	"fox-gateway/internal/domain"
+	"fox-gateway/internal/registry"
 )
 
 func TestOpenMigratesConversationSessionColumn(t *testing.T) {
@@ -50,6 +52,61 @@ func TestOpenMigratesConversationSessionColumn(t *testing.T) {
 	}
 	if conversation.SessionGeneration != 0 {
 		t.Fatalf("SessionGeneration = %d, want 0", conversation.SessionGeneration)
+	}
+}
+
+func TestBootstrapMessageAndRegisterFirstUser(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(ctx, filepath.Join(t.TempDir(), "fox-gateway.db"))
+	if err != nil {
+		t.Fatalf("store.Open error = %v", err)
+	}
+	defer st.Close()
+
+	message, ok, err := st.BootstrapMessage(ctx)
+	if err != nil {
+		t.Fatalf("BootstrapMessage error = %v", err)
+	}
+	if !ok || !strings.HasPrefix(message, registry.RegisterCommandPrefix+" ") {
+		t.Fatalf("unexpected bootstrap message: %q, %v", message, ok)
+	}
+	key, ok := registry.ParseRegistrationMessage(message)
+	if !ok {
+		t.Fatalf("ParseRegistrationMessage(%q) failed", message)
+	}
+
+	registered, err := st.RegisterFirstUserWithBootstrap(ctx, "ou_1", "chat_1", key)
+	if err != nil {
+		t.Fatalf("RegisterFirstUserWithBootstrap error = %v", err)
+	}
+	if !registered {
+		t.Fatal("expected first registration to succeed")
+	}
+	if hasUser, err := st.HasRegisteredUser(ctx, "ou_1"); err != nil {
+		t.Fatalf("HasRegisteredUser error = %v", err)
+	} else if !hasUser {
+		t.Fatal("expected registered user to be active")
+	}
+	if message, ok, err := st.BootstrapMessage(ctx); err != nil {
+		t.Fatalf("BootstrapMessage after registration error = %v", err)
+	} else if ok || message != "" {
+		t.Fatalf("expected bootstrap message to be unavailable after first registration, got %q, %v", message, ok)
+	}
+}
+
+func TestRegisterFirstUserWithBootstrapRejectsWrongKey(t *testing.T) {
+	ctx := context.Background()
+	st, err := Open(ctx, filepath.Join(t.TempDir(), "fox-gateway.db"))
+	if err != nil {
+		t.Fatalf("store.Open error = %v", err)
+	}
+	defer st.Close()
+
+	if _, _, err := st.BootstrapMessage(ctx); err != nil {
+		t.Fatalf("BootstrapMessage error = %v", err)
+	}
+	if _, err := st.RegisterFirstUserWithBootstrap(ctx, "ou_1", "chat_1", "wrong"); err == nil {
+		t.Fatal("expected invalid registration key to fail")
 	}
 }
 

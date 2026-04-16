@@ -59,16 +59,12 @@ func TestHandleLarkEventSendsApprovalCardForMutation(t *testing.T) {
 	defer st.Close()
 
 	messenger := &fakeMessenger{}
-	reg, err := registry.Open(filepath.Join(tempDir, "fox-gateway.json"))
-	if err != nil {
-		t.Fatalf("registry.Open error = %v", err)
-	}
 
 	svc := NewService(config.Config{
 		WorkspaceRoot:      tempDir,
 		ClaudePath:         "claude",
 		MaxReadOnlyWorkers: 1,
-	}, st, reg, messenger)
+	}, st, messenger)
 
 	err = svc.HandleLarkEvent(context.Background(), domain.LarkMessageEvent{
 		SenderOpenID: "ou_requester",
@@ -107,11 +103,10 @@ func TestHandleLarkEventRegistersUserWithBootstrap(t *testing.T) {
 	defer st.Close()
 
 	messenger := &fakeMessenger{}
-	reg, err := registry.Open(filepath.Join(tempDir, "fox-gateway.json"))
+	message, ok, err := st.BootstrapMessage(context.Background())
 	if err != nil {
-		t.Fatalf("registry.Open error = %v", err)
+		t.Fatalf("BootstrapMessage error = %v", err)
 	}
-	message, ok := reg.BootstrapMessage()
 	if !ok {
 		t.Fatal("expected bootstrap message")
 	}
@@ -120,7 +115,7 @@ func TestHandleLarkEventRegistersUserWithBootstrap(t *testing.T) {
 		WorkspaceRoot:      tempDir,
 		ClaudePath:         "claude",
 		MaxReadOnlyWorkers: 1,
-	}, st, reg, messenger)
+	}, st, messenger)
 
 	err = svc.HandleLarkEvent(context.Background(), domain.LarkMessageEvent{
 		SenderOpenID: "ou_first",
@@ -131,7 +126,11 @@ func TestHandleLarkEventRegistersUserWithBootstrap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandleLarkEvent error = %v", err)
 	}
-	if !reg.HasUser("ou_first") {
+	hasUser, err := st.HasRegisteredUser(context.Background(), "ou_first")
+	if err != nil {
+		t.Fatalf("HasRegisteredUser error = %v", err)
+	}
+	if !hasUser {
 		t.Fatal("expected first user to be registered")
 	}
 	if len(messenger.texts) == 0 || messenger.texts[len(messenger.texts)-1] != "Fox Gateway pairing success :)" {
@@ -167,7 +166,7 @@ fi
 		WorkspaceRoot:      tempDir,
 		ClaudePath:         claudePath,
 		MaxReadOnlyWorkers: 1,
-	}, st, nil, messenger)
+	}, st, messenger)
 
 	ctx := context.Background()
 	if err := svc.HandleLarkEvent(ctx, domain.LarkMessageEvent{
@@ -242,7 +241,7 @@ func TestHandleLarkEventResetCommandsClearConversationSession(t *testing.T) {
 				WorkspaceRoot:      tempDir,
 				ClaudePath:         "claude",
 				MaxReadOnlyWorkers: 1,
-			}, st, nil, messenger)
+			}, st, messenger)
 
 			if err := svc.HandleLarkEvent(context.Background(), domain.LarkMessageEvent{
 				SenderOpenID: "ou_requester",
@@ -297,11 +296,10 @@ else
 fi
 `)
 	messenger := &fakeMessenger{}
-	reg, err := registry.Open(filepath.Join(tempDir, "fox-gateway.json"))
+	message, ok, err := st.BootstrapMessage(context.Background())
 	if err != nil {
-		t.Fatalf("registry.Open error = %v", err)
+		t.Fatalf("BootstrapMessage error = %v", err)
 	}
-	message, ok := reg.BootstrapMessage()
 	if !ok {
 		t.Fatal("expected bootstrap message")
 	}
@@ -309,9 +307,9 @@ fi
 	if !ok {
 		t.Fatalf("ParseRegistrationMessage(%q) failed", message)
 	}
-	registered, err := reg.RegisterUserWithBootstrap("ou_user", "chat_1", key)
+	registered, err := st.RegisterFirstUserWithBootstrap(context.Background(), "ou_user", "chat_1", key)
 	if err != nil {
-		t.Fatalf("RegisterUserWithBootstrap error = %v", err)
+		t.Fatalf("RegisterFirstUserWithBootstrap error = %v", err)
 	}
 	if !registered {
 		t.Fatal("expected user registration")
@@ -334,7 +332,7 @@ fi
 		WorkspaceRoot:      tempDir,
 		ClaudePath:         claudePath,
 		MaxReadOnlyWorkers: 1,
-	}, st, reg, messenger)
+	}, st, messenger)
 
 	ctx := context.Background()
 	if err := svc.HandleLarkEvent(ctx, domain.LarkMessageEvent{
@@ -375,11 +373,10 @@ func TestHandleLarkActionRejectsStaleConversationContext(t *testing.T) {
 
 	claudePath := writeFakeClaudeScript(t, `printf '{"result":"should-not-run","session_id":"session-2"}\n'`)
 	messenger := &fakeMessenger{}
-	reg, err := registry.Open(filepath.Join(tempDir, "fox-gateway.json"))
+	message, ok, err := st.BootstrapMessage(context.Background())
 	if err != nil {
-		t.Fatalf("registry.Open error = %v", err)
+		t.Fatalf("BootstrapMessage error = %v", err)
 	}
-	message, ok := reg.BootstrapMessage()
 	if !ok {
 		t.Fatal("expected bootstrap message")
 	}
@@ -387,9 +384,9 @@ func TestHandleLarkActionRejectsStaleConversationContext(t *testing.T) {
 	if !ok {
 		t.Fatalf("ParseRegistrationMessage(%q) failed", message)
 	}
-	registered, err := reg.RegisterUserWithBootstrap("ou_user", "chat_1", key)
+	registered, err := st.RegisterFirstUserWithBootstrap(context.Background(), "ou_user", "chat_1", key)
 	if err != nil {
-		t.Fatalf("RegisterUserWithBootstrap error = %v", err)
+		t.Fatalf("RegisterFirstUserWithBootstrap error = %v", err)
 	}
 	if !registered {
 		t.Fatal("expected user registration")
@@ -413,7 +410,7 @@ func TestHandleLarkActionRejectsStaleConversationContext(t *testing.T) {
 		WorkspaceRoot:      tempDir,
 		ClaudePath:         claudePath,
 		MaxReadOnlyWorkers: 1,
-	}, st, reg, messenger)
+	}, st, messenger)
 
 	ctx := context.Background()
 	if err := svc.HandleLarkEvent(ctx, domain.LarkMessageEvent{

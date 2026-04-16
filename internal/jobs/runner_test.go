@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -54,6 +55,20 @@ func TestPersistConversationSessionIgnoresStaleGeneration(t *testing.T) {
 	}
 	if conversation.SessionGeneration != 1 {
 		t.Fatalf("SessionGeneration = %d, want 1", conversation.SessionGeneration)
+	}
+}
+
+func TestSummarizeFailureHidesExitStatusNoise(t *testing.T) {
+	summary := summarizeFailure(errors.New("exit status 1"), claudecode.Result{})
+	if summary != "command failed" {
+		t.Fatalf("summarizeFailure() = %q, want command failed", summary)
+	}
+}
+
+func TestSummarizeFailurePrefersCleanStderr(t *testing.T) {
+	summary := summarizeFailure(errors.New("exit status 1"), claudecode.Result{Stderr: "exit status 1\nreal failure"})
+	if summary != "real failure" {
+		t.Fatalf("summarizeFailure() = %q, want real failure", summary)
 	}
 }
 

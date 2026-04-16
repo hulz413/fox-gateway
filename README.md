@@ -56,7 +56,7 @@ fox-gateway upgrade
 fox-gateway setup
 ```
 
-This writes local runtime config to `~/.fox-gateway/fox-gateway.json` by default.
+This writes local runtime config to `~/.fox-gateway/fox-gateway.json` by default. Pairing state is stored in the local database.
 
 During setup, you will be asked for:
 - `LARK_APP_ID`
@@ -89,7 +89,8 @@ Both commands clear the current chat's stored Claude session. The next message i
 
 ## Notes
 
-- Local config and pairing state live under `~/.fox-gateway/`
+- Local config lives in `~/.fox-gateway/fox-gateway.json`
+- Pairing state lives in `~/.fox-gateway/data/fox-gateway.db`
 - Runtime logs are written under `~/.fox-gateway/logs/`
 - The gateway currently uses Feishu websocket connection delivery mode
 - The worker currently runs Claude Code only

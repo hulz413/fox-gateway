@@ -2,6 +2,7 @@ package setup
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"fox-gateway/internal/registry"
+	"fox-gateway/internal/store"
 )
 
 const (
@@ -74,18 +76,21 @@ func Run(in io.Reader, out io.Writer, configPath string) error {
 		return err
 	}
 
+	st, err := store.Open(context.Background(), registry.ExpandHome(cfg.DBPath))
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
 	_, _ = fmt.Fprintln(out, "")
 	printHeader(out, "Setup Complete", "Local configuration has been written successfully.")
 	_, _ = fmt.Fprintf(out, "Configuration written to:\n  %s\n", reg.Path())
 	_, _ = fmt.Fprintln(out, "")
 	_, _ = fmt.Fprintln(out, "Next step:")
 	_, _ = fmt.Fprintln(out, "  fox-gateway start")
-	if message, ok := reg.BootstrapMessage(); ok {
-		_, _ = fmt.Fprintln(out, "")
-		_, _ = fmt.Fprintln(out, "First user pairing")
-		_, _ = fmt.Fprintln(out, "----------------------")
-		_, _ = fmt.Fprintln(out, "After the gateway starts, open the Feishu chat with the bot and send this exact message:")
-		_, _ = fmt.Fprintf(out, "  %s\n", message)
+	_, _, err = st.BootstrapMessage(context.Background())
+	if err != nil {
+		return err
 	}
 	return nil
 }

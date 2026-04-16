@@ -124,12 +124,6 @@ func runServe(stdout io.Writer) (runErr error) {
 		return fmt.Errorf("failed to reconcile previous workers: %w", err)
 	}
 
-	reg, err := registry.Open(registry.DefaultPath())
-	if err != nil {
-		fileLogger.Printf("open registry error: %v", err)
-		return fmt.Errorf("failed to open registry: %w", err)
-	}
-
 	instanceID := os.Getenv("FOX_GATEWAY_INSTANCE_ID")
 	if instanceID == "" {
 		instanceID = registry.RandomHex(8)
@@ -150,7 +144,7 @@ func runServe(stdout io.Writer) (runErr error) {
 	}()
 
 	larkClient := httpserver.NewLarkClient(cfg.LarkAppID, cfg.LarkAppSecret, fileLogger)
-	service := orchestrator.NewService(cfg, st, reg, larkClient)
+	service := orchestrator.NewService(cfg, st, larkClient)
 	longConn := larkconn.New(cfg.LarkAppID, cfg.LarkAppSecret, service, fileLogger)
 	larkHandler := httpserver.NewLarkHandler(cfg.LarkVerificationToken, cfg.LarkAppSecret, service)
 	server := httpserver.NewWithListener(listener, larkHandler, fileLogger, func() (int, any) {
@@ -234,7 +228,9 @@ func runServe(stdout io.Writer) (runErr error) {
 	}
 
 	fileLogger.Printf("gateway is running")
-	if message, ok := reg.BootstrapMessage(); ok {
+	if message, ok, err := st.BootstrapMessage(ctx); err != nil {
+		fileLogger.Printf("load pairing message error: %v", err)
+	} else if ok {
 		fileLogger.Printf("pair code message: %s", message)
 	}
 	if stdout != nil && stdout != io.Discard {
@@ -256,7 +252,8 @@ func runServe(stdout io.Writer) (runErr error) {
 }
 
 func runStart(stdout io.Writer) error {
-	if _, err := loadConfigWithGuidance(); err != nil {
+	cfg, err := loadConfigWithGuidance()
+	if err != nil {
 		return err
 	}
 	if state, ok, err := currentRuntime(); err != nil {
@@ -317,11 +314,12 @@ func runStart(stdout io.Writer) error {
 	fmt.Fprintln(stdout, "Fox Gateway is running in background.")
 	printRuntimeSummary(stdout, state, runtimeCondition(state))
 
-	reg, err := registry.Open(registry.DefaultPath())
+	st, err := store.Open(context.Background(), cfg.DBPath)
 	if err == nil {
-		if message, ok := reg.BootstrapMessage(); ok {
+		defer st.Close()
+		if message, ok, err := st.BootstrapMessage(context.Background()); err == nil && ok {
 			fmt.Fprintln(stdout, "")
-			fmt.Fprintln(stdout, "First user pairing")
+			fmt.Fprintln(stdout, "Feishu user pairing")
 			fmt.Fprintln(stdout, "----------------------")
 			fmt.Fprintln(stdout, "Send this message in the Feishu bot chat:")
 			fmt.Fprintf(stdout, "  %s\n", message)
